@@ -18,6 +18,7 @@ unsigned char *julia_set_parallel(int w, int h, int cnt, float xl, float xr, flo
 int julia(int w, int h, float xl, float xr, float yb, float yt, int i, int j, int cnt);
 void tga_write(int w, int h, unsigned char rgb[], char *filename);
 void timestamp(void);
+void tga_compare(int w, int h, unsigned char* rgb_sequential, unsigned char* rgb_parallel);
 
 int main(int argc, char *argv[])
 {
@@ -73,6 +74,8 @@ int main(int argc, char *argv[])
 	printf("Parallel execution time: %f\n", timeParallel);
 
 	tga_write(w, h, rgbParallel, filename);
+
+	tga_compare(w, h, rgb, rgbParallel);
 
 	free(rgb);
 	free(rgbParallel);
@@ -211,6 +214,29 @@ void tga_write(int w, int h, unsigned char rgb[], char *filename)
 	// printf("  Graphics data saved as '%s'\n", filename);
 
 	return;
+}
+
+
+void tga_compare(int w, int h, unsigned char* rgb_sequential, unsigned char* rgb_parallel)
+{
+	char failed = 0;
+
+	for (int i = 0; i < 3 * w * h; i++)
+	{
+		if (abs(rgb_sequential[i] - rgb_parallel[i]) > ACCURACY)
+		{
+			/*if (i < 10000)
+				printf("%d %d\n", rgb_sequential[i], rgb_parallel[i]);*/
+
+			failed = 1;
+			break;
+		}
+	}
+
+	if (failed)
+		printf("Test FAILED\n");
+	else
+		printf("Test PASSED\n");
 }
 
 void timestamp(void)

@@ -1,2 +1,1 @@
-# mups
-Multiprocesorski sistemi
+# Multiprocesorski sistemi

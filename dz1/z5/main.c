@@ -137,7 +137,7 @@ void main (int argc, char* argv[]){
     exit(1);
   }
 
-  if (sampleDensity == NULL || gridData == NULL || sampleDensityParallel == NULL || gridDataParallel){
+  if (sampleDensity == NULL || gridData == NULL || sampleDensityParallel == NULL || gridDataParallel == NULL){
     printf("ERROR: Unable to allocate memory for output data\n");
     exit(1);
   }

@@ -126,19 +126,25 @@ unsigned char *julia_set_parallel(int w, int h, int cnt, float xl, float xr, flo
 
 	rgb = (unsigned char *)malloc(w * h * 3 * sizeof(unsigned char));
 
-#pragma omp parallel for collapse(2) default(none) private(i, j, k, juliaValue) \
+#pragma omp parallel default(none) private(i, j, k, juliaValue) \
 	shared(rgb, w, h, xl, xr, yb, yt, cnt)
-	for (j = 0; j < h; j++)
 	{
-		for (i = 0; i < w; i++)
+		#pragma omp single
+		for (j = 0; j < h; j++)
 		{
-			juliaValue = julia(w, h, xl, xr, yb, yt, i, j, cnt);
+			#pragma omp task
+			{
+				for (i = 0; i < w; i++)
+				{
+					juliaValue = julia(w, h, xl, xr, yb, yt, i, j, cnt);
 
-			k = 3 * (j * w + i);
+					k = 3 * (j * w + i);
 
-			rgb[k] = 255 * (1 - juliaValue);
-			rgb[k + 1] = 255 * (1 - juliaValue);
-			rgb[k + 2] = 255;
+					rgb[k] = 255 * (1 - juliaValue);
+					rgb[k + 1] = 255 * (1 - juliaValue);
+					rgb[k + 2] = 255;
+				}
+			}
 		}
 	}
 

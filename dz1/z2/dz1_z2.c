@@ -126,8 +126,8 @@ unsigned char *julia_set_parallel(int w, int h, int cnt, float xl, float xr, flo
 
 	rgb = (unsigned char *)malloc(w * h * 3 * sizeof(unsigned char));
 
-#pragma omp parallel for collapse(2) default(none) private(i, j, k, juliaValue) \
-	shared(rgb, w, h, xl, xr, yb, yt, cnt)
+#pragma omp parallel for default(none) private(i, j, k, juliaValue) \
+	shared(rgb, w, h, xl, xr, yb, yt, cnt) schedule(static, 1)
 	for (j = 0; j < h; j++)
 	{
 		for (i = 0; i < w; i++)

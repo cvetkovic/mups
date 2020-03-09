@@ -1,0 +1,7 @@
+./sharpen data/balloons_noisy.pgm
+./sharpen data/bone_scint.pgm
+./sharpen data/fuzzy.pgm
+./sharpen data/lena512.pgm
+./sharpen data/man.pgm
+./sharpen data/Rainier_blur.pgm
+

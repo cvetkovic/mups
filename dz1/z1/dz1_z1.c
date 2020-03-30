@@ -70,6 +70,7 @@ int main(int argc, char *argv[])
 	timeParallel = omp_get_wtime() - timeParallel;
 
 	printf("\n");
+	printf("%d %d %d\n", h, w, cnt);
 	printf("Sequential execution time: %f\n", timeSequential);
 	printf("Parallel execution time: %f\n", timeParallel);
 

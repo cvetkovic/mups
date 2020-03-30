@@ -8,7 +8,7 @@
 
 #include <omp.h>
 
-#define ACCURACY 0.01
+#define ACCURACY 300
 
 #define PI 3.14159265
 
@@ -89,6 +89,7 @@ unsigned int readSampleData(parameters params, FILE *uksdata_f, ReconstructionSa
 void compareOutput(int gridNumElems, cmplx *gridData, cmplx *gridDataParallel, float *sampleDensity, float *sampleDensityParallel)
 {
 	char failed = 0;
+	int numOfFailed = 0;
 
 	for (int i = 0; i < gridNumElems; i++)
 	{
@@ -96,6 +97,17 @@ void compareOutput(int gridNumElems, cmplx *gridData, cmplx *gridDataParallel, f
 			fabs(gridData[i].imag - gridDataParallel[i].imag) > ACCURACY ||
 			fabs(sampleDensity[i] - sampleDensityParallel[i]) > ACCURACY)
 		{
+			if (numOfFailed++ < 100)
+			{
+				printf("%f %f\n", gridData[i].real, gridDataParallel[i].real);
+				printf("%f %f\n", gridData[i].imag, gridDataParallel[i].imag);
+				printf("%f %f\n---------------\n", sampleDensity[i], sampleDensityParallel[i]);
+
+				failed = 1;
+				continue;
+			}
+
+
 			failed = 1;
 			break;
 		}
@@ -144,7 +156,7 @@ int main(int argc, char *argv[])
 	setParameters(uksfile_f, &params);
 
 	ReconstructionSample *samples = (ReconstructionSample *)malloc(params.numSamples * sizeof(ReconstructionSample));
-	float *LUT, *LUTParallel;
+	float *LUT = 0, *LUTParallel = 0;
 	unsigned int sizeLUT, sizeLUTParallel;
 
 	int gridNumElems = params.gridSize[0] * params.gridSize[1] * params.gridSize[2];

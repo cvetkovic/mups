@@ -55,7 +55,9 @@ void calculateLUT(float beta, float width, float **LUT, unsigned int *sizeLUT)
 		(*LUT) = (float *)malloc(size * sizeof(float));
 
 		unsigned int k;
-#pragma omp parallel for default(shared) private(k, v) schedule(static, 1)
+//#pragma omp parallel for default(shared) private(k, v) schedule(static, 1)
+
+//#pragma omp parallel for private(v)
 		for (k = 0; k < size; ++k)
 		{
 			v = (((float)k) / ((float)size)) * cutoff2;
@@ -197,33 +199,8 @@ int gridding_Gold(unsigned int n, parameters params, ReconstructionSample *sampl
 	}
 }
 
-int gridding_Gold_Parallel(unsigned int n, parameters params, ReconstructionSample *sample, float *LUT, unsigned int sizeLUT, cmplx *gridData, float *sampleDensity)
+/*int gridding_Gold_Parallel(unsigned int n, parameters params, ReconstructionSample *sample, float *LUT, unsigned int sizeLUT, cmplx *gridData, float *sampleDensity)
 {
-	unsigned int NxL, NxH;
-	unsigned int NyL, NyH;
-	unsigned int NzL, NzH;
-
-	int nx;
-	int ny;
-	int nz;
-
-	float w;
-	unsigned int idx;
-	unsigned int idx0;
-
-	unsigned int idxZ;
-	unsigned int idxY;
-
-	float Dx2[100];
-	float Dy2[100];
-	float Dz2[100];
-	float *dx2 = NULL;
-	float *dy2 = NULL;
-	float *dz2 = NULL;
-
-	float dy2dz2;
-	float v;
-
 	unsigned int size_x = params.gridSize[0];
 	unsigned int size_y = params.gridSize[1];
 	unsigned int size_z = params.gridSize[2];
@@ -234,14 +211,39 @@ int gridding_Gold_Parallel(unsigned int n, parameters params, ReconstructionSamp
 
 	float beta = PI * sqrt(4 * params.kernelWidth * params.kernelWidth / (params.oversample * params.oversample) * (params.oversample - .5) * (params.oversample - .5) - .8);
 
-	int i;
-#pragma omp parallel for default(shared) \
-	private(NxL, NxH, NyL, NyH, NzL, NzH, dx2, dy2, dz2, dy2dz2, nx, ny, nz, idx, idx0, idxY, idxZ, v, w) \
-	schedule(static, 1)
-	for (i = 0; i < n; i++)
+  #pragma omp parallel for schedule(dynamic,5000) default(none) \
+  shared(gridData,sampleDensity,beta,LUT,sizeLUT,params,n,cutoff,cutoff2,_1overCutoff2,size_x,size_y,size_z,sample)
+
+	for (int i = 0; i < n; i++)
 	{
+		unsigned int NxL, NxH;
+		unsigned int NyL, NyH;
+		unsigned int NzL, NzH;
+
+		int nx;
+		int ny;
+		int nz;
+
+		float w;
+		unsigned int idx;
+		unsigned int idx0;
+
+		unsigned int idxZ;
+		unsigned int idxY;
+
+		float Dx2[100];
+		float Dy2[100];
+		float Dz2[100];
+		float *dx2 = NULL;
+		float *dy2 = NULL;
+		float *dz2 = NULL;
+
+		float dy2dz2;
+		float v;
+
 		ReconstructionSample pt = sample[i];
 
+		// local
 		float kx = pt.kX;
 		float ky = pt.kY;
 		float kz = pt.kZ;
@@ -257,6 +259,7 @@ int gridding_Gold_Parallel(unsigned int n, parameters params, ReconstructionSamp
 
 		if ((pt.real != 0.0 || pt.imag != 0.0) && pt.sdc != 0.0)
 		{
+			// array initialization
 			for (dz2 = Dz2, nz = NzL; nz <= NzH; ++nz, ++dz2)
 			{
 				*dz2 = ((kz - nz) * (kz - nz));
@@ -306,12 +309,12 @@ int gridding_Gold_Parallel(unsigned int n, parameters params, ReconstructionSamp
 										w = kernel_value_CPU(beta * sqrt(1.0 - (v * _1overCutoff2))) * pt.sdc;
 									}
 
-									#pragma omp atomic
+									#pragma omp	atomic
 									gridData[idx].real += (w * pt.real);
-									#pragma omp atomic
+									#pragma omp	atomic
 									gridData[idx].imag += (w * pt.imag);
 
-									#pragma omp atomic
+									#pragma omp	atomic
 									sampleDensity[idx] += 1.0;
 								}
 							}
@@ -321,4 +324,124 @@ int gridding_Gold_Parallel(unsigned int n, parameters params, ReconstructionSamp
 			}
 		}
 	}
+}*/
+
+int gridding_Gold_Parallel(unsigned int n, parameters params, ReconstructionSample* sample, float* LUT, unsigned int sizeLUT, cmplx* gridData, float* sampleDensity){
+
+  unsigned int size_x = params.gridSize[0];
+  unsigned int size_y = params.gridSize[1];
+  unsigned int size_z = params.gridSize[2];
+
+  float cutoff = ((float)(params.kernelWidth))/2.0; 
+  float cutoff2 = cutoff*cutoff;                    
+  float _1overCutoff2 = 1/cutoff2;                
+
+  float beta = PI * sqrt(4*params.kernelWidth*params.kernelWidth/(params.oversample*params.oversample) * (params.oversample-.5)*(params.oversample-.5)-.8);
+  double t2_1 = omp_get_wtime();
+  #pragma omp parallel for schedule(dynamic,5000) default(none) \
+  shared(gridData,sampleDensity,beta,LUT,sizeLUT,params,n,cutoff,cutoff2,_1overCutoff2,size_x,size_y,size_z,sample)
+  for (int i=0; i < n; i++){
+    ReconstructionSample pt = sample[i];
+
+    unsigned int NxL, NxH;
+    unsigned int NyL, NyH;
+    unsigned int NzL, NzH;
+
+    int nx;
+    int ny;
+    int nz;
+
+    float w;
+    unsigned int idx;
+    unsigned int idx0;
+
+    unsigned int idxZ;
+    unsigned int idxY;
+
+    float Dx2[100];
+    float Dy2[100];
+    float Dz2[100];
+    float *dx2=NULL;
+    float *dy2=NULL;
+    float *dz2=NULL;
+
+    float dy2dz2;
+    float v;
+
+    float kx = pt.kX;
+    float ky = pt.kY;
+    float kz = pt.kZ;
+
+    NxL = max((kx - cutoff), 0.0);
+    NxH = min((kx + cutoff), size_x-1.0);
+
+    NyL = max((ky - cutoff), 0.0);
+    NyH = min((ky + cutoff), size_y-1.0);
+
+    NzL = max((kz - cutoff), 0.0);
+    NzH = min((kz + cutoff), size_z-1.0);
+
+    if((pt.real != 0.0 || pt.imag != 0.0) && pt.sdc!=0.0)
+    {
+      for(dz2 = Dz2, nz=NzL; nz<=NzH; ++nz, ++dz2)
+      {
+        *dz2 = ((kz-nz)*(kz-nz));
+      }
+      for(dx2=Dx2,nx=NxL; nx<=NxH; ++nx,++dx2)
+      {
+        *dx2 = ((kx-nx)*(kx-nx));
+      }
+      for(dy2=Dy2, ny=NyL; ny<=NyH; ++ny,++dy2)
+      {
+        *dy2 = ((ky-ny)*(ky-ny));
+      }
+
+      idxZ = (NzL-1)*size_x*size_y;
+      for(dz2=Dz2, nz=NzL; nz<=NzH; ++nz, ++dz2)
+      {
+        idxZ += size_x*size_y;
+
+        idxY = (NyL-1)*size_x;
+
+        if((*dz2)<cutoff2)
+        {
+          for(dy2=Dy2, ny=NyL; ny<=NyH; ++ny, ++dy2)
+          {
+            idxY += size_x;
+
+            dy2dz2=(*dz2)+(*dy2);
+
+            idx0 = idxY + idxZ;
+
+            if(dy2dz2<cutoff2)
+            {
+              for(dx2=Dx2, nx=NxL; nx<=NxH; ++nx, ++dx2)
+              {
+                v = dy2dz2+(*dx2);
+
+                if(v<cutoff2)
+                {
+                  idx = nx + idx0;
+
+                  if (params.useLUT){
+        		    w = kernel_value_LUT(v, LUT, sizeLUT, _1overCutoff2) * pt.sdc;
+		          } else {
+		            w = kernel_value_CPU(beta*sqrt(1.0-(v*_1overCutoff2))) * pt.sdc;
+		          }
+                  #pragma omp atomic
+                  gridData[idx].real += (w*pt.real);
+                  #pragma omp atomic
+                  gridData[idx].imag += (w*pt.imag);
+                  #pragma omp atomic
+                  sampleDensity[idx] += 1.0;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  double t2_2 = omp_get_wtime();
+  //printf("Parallel execution = %f\n",t2_2-t2_1);
 }

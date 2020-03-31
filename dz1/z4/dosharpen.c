@@ -228,7 +228,7 @@ double **dosharpenParallel(char *infile, int nx, int ny)
   double **filterMatrix = makeFilterMatrix(d);
 
 #pragma omp parallel for collapse(2) default(none) private(i, j, k, l, nx, ny, d) \
-    shared(convolution, fuzzyPadded) schedule(static, 1)
+    shared(convolution, fuzzyPadded, filterMatrix) schedule(static, 1)
   for (i = 0; i < nx; i++)
   {
     for (j = 0; j < ny; j++)
@@ -253,7 +253,7 @@ double **dosharpenParallel(char *infile, int nx, int ny)
 
   double c = scale / norm;
 
-  #pragma omp parallel for collapse(2) default(none) private(i, j) shared(nx, ny, sharp, fuzzyPadded, c, convolution) \
+  #pragma omp parallel for collapse(2) default(none) private(i, j) shared(d, nx, ny, sharp, fuzzyPadded, c, convolution) \
     schedule(static, 1)
   for (i = 0; i < nx; i++)
   {

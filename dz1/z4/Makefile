@@ -1,9 +1,9 @@
 MF=	Makefile
 
 #COMPILER
-CC=	gcc
+CC=	gcc 
 
-CFLAGS=	-g
+CFLAGS=	-g -fopenmp
 LFLAGS=	-lm
 
 EXE=	sharpen

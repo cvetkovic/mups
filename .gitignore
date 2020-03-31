@@ -1,5 +1,4 @@
-
 julia
 *.tga
-*.pgm
+# *.pgm
 .vscode/c_cpp_properties.json

@@ -10,3 +10,6 @@ dz1/z4/filter.o
 dz1/z4/sharpen
 dz1/z4/sharpen.o
 dz1/z4/utilities.o
+*.o
+*.pgm
+*.o

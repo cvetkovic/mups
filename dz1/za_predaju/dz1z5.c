@@ -43,7 +43,7 @@ void calculateLUT(float beta, float width, float **LUT, unsigned int *sizeLUT)
 		(*LUT) = (float *)malloc(size * sizeof(float));
 
 		unsigned int k;
-#pragma omp parallel for default(shared) private(v) schedule(static, 1)
+		// #pragma omp parallel for default(shared) private(v) schedule(static, 1)
 		for (k = 0; k < size; ++k)
 		{
 			v = (((float)k) / ((float)size)) * cutoff2;
@@ -187,31 +187,6 @@ int gridding_Gold(unsigned int n, parameters params, ReconstructionSample *sampl
 
 int gridding_Gold_Parallel(unsigned int n, parameters params, ReconstructionSample *sample, float *LUT, unsigned int sizeLUT, cmplx *gridData, float *sampleDensity)
 {
-	unsigned int NxL, NxH;
-	unsigned int NyL, NyH;
-	unsigned int NzL, NzH;
-
-	int nx;
-	int ny;
-	int nz;
-
-	float w;
-	unsigned int idx;
-	unsigned int idx0;
-
-	unsigned int idxZ;
-	unsigned int idxY;
-
-	float Dx2[100];
-	float Dy2[100];
-	float Dz2[100];
-	float *dx2 = NULL;
-	float *dy2 = NULL;
-	float *dz2 = NULL;
-
-	float dy2dz2;
-	float v;
-
 	unsigned int size_x = params.gridSize[0];
 	unsigned int size_y = params.gridSize[1];
 	unsigned int size_z = params.gridSize[2];
@@ -222,12 +197,36 @@ int gridding_Gold_Parallel(unsigned int n, parameters params, ReconstructionSamp
 
 	float beta = PI * sqrt(4 * params.kernelWidth * params.kernelWidth / (params.oversample * params.oversample) * (params.oversample - .5) * (params.oversample - .5) - .8);
 
-	int i;
-#pragma omp parallel for default(shared) private(NxL, NxH, NyL, NyH, NzL, NzH, dx2, dy2, dz2, dy2dz2, nx, ny, nz, idx, idx0, idxY, idxZ, v, w) \
-	schedule(static, 1)
-	for (i = 0; i < n; i++)
+#pragma omp parallel for schedule(dynamic, 5000) default(none) \
+  shared(gridData, sampleDensity, beta, LUT, sizeLUT, params, n, cutoff, cutoff2, _1overCutoff2, size_x, size_y, size_z, sample)
+	for (int i = 0; i < n; i++)
 	{
 		ReconstructionSample pt = sample[i];
+
+		unsigned int NxL, NxH;
+		unsigned int NyL, NyH;
+		unsigned int NzL, NzH;
+
+		int nx;
+		int ny;
+		int nz;
+
+		float w;
+		unsigned int idx;
+		unsigned int idx0;
+
+		unsigned int idxZ;
+		unsigned int idxY;
+
+		float Dx2[100];
+		float Dy2[100];
+		float Dz2[100];
+		float *dx2 = NULL;
+		float *dy2 = NULL;
+		float *dz2 = NULL;
+
+		float dy2dz2;
+		float v;
 
 		float kx = pt.kX;
 		float ky = pt.kY;
@@ -384,38 +383,6 @@ unsigned int readSampleData(parameters params, FILE *uksdata_f, ReconstructionSa
 	return i;
 }
 
-void compareOutput(int gridNumElems, cmplx *gridData, cmplx *gridDataParallel, float *sampleDensity, float *sampleDensityParallel)
-{
-	char failed = 0;
-	int numOfFailed = 0;
-
-	for (int i = 0; i < gridNumElems; i++)
-	{
-		if (fabs(gridData[i].real - gridDataParallel[i].real) > ACCURACY ||
-			fabs(gridData[i].imag - gridDataParallel[i].imag) > ACCURACY ||
-			fabs(sampleDensity[i] - sampleDensityParallel[i]) > ACCURACY)
-		{
-			if (numOfFailed++ < 100)
-			{
-				printf("%f %f\n", gridData[i].real, gridDataParallel[i].real);
-				printf("%f %f\n", gridData[i].imag, gridDataParallel[i].imag);
-				printf("%f %f\n---------------\n", sampleDensity[i], sampleDensityParallel[i]);
-
-				failed = 1;
-				continue;
-			}
-
-			failed = 1;
-			break;
-		}
-	}
-
-	if (failed)
-		printf("Test FAILED\n");
-	else
-		printf("Test PASSED\n");
-}
-
 int main(int argc, char *argv[])
 {
 	char uksfile[256];
@@ -513,10 +480,42 @@ int main(int argc, char *argv[])
 	gridding_Gold_Parallel(n, params, samples, LUTParallel, sizeLUTParallel, gridDataParallel, sampleDensityParallel);
 	timeParallel = omp_get_wtime() - timeParallel;
 
-	compareOutput(gridNumElems, gridData, gridDataParallel, sampleDensity, sampleDensityParallel);
-
+	printf("Number of threds: %d\n", omp_get_max_threads());
 	printf("Sequential execution time: %f\n", timeSequential);
 	printf("Parallel execution time: %f\n", timeParallel);
+
+	int failed = 0;
+
+	for (int i = 0; i < n; i++)
+	{
+		if (fabs(gridData[i].real - gridDataParallel[i].real) > ACCURACY ||
+			fabs(gridData[i].imag - gridDataParallel[i].imag) > ACCURACY)
+		{
+			failed = 1;
+			break;
+		}
+	}
+
+	if (failed == 1)
+		printf("TEST FAILED - gridData\n");
+	else
+		printf("TEST PASSED - gridData\n");
+
+	failed = 0;
+
+	for (int i = 0; i < n; i++)
+	{
+		if (sampleDensity[i] != sampleDensityParallel[i])
+		{
+			failed = 1;
+			break;
+		}
+	}
+
+	if (failed == 1)
+		printf("TEST FAILED - sampleDensity\n");
+	else
+		printf("TEST PASSED - sampleDensity\n");
 
 	if (params.useLUT)
 	{

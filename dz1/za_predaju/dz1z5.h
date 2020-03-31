@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define ACCURACY 0.01
+#define ACCURACY 30
 
 #define PI 3.14159265
 

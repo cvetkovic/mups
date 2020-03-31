@@ -420,8 +420,9 @@ double **dosharpenParallel(char *infile, int nx, int ny)
 
 	double **filterMatrix = makeFilterMatrix(d);
 
-#pragma omp parallel for collapse(2) default(none) private(i, j, k, l, nx, ny, d) \
-	shared(convolution, fuzzyPadded, filterMatrix) schedule(static, 1)
+#pragma omp parallel for collapse(2) default(none) private(i, j, k, l) \
+	firstprivate(nx, ny) \
+	shared(convolution, fuzzyPadded, filterMatrix, d) schedule(static, 1)
 	for (i = 0; i < nx; i++)
 	{
 		for (j = 0; j < ny; j++)
@@ -544,7 +545,7 @@ int main(int argc, char *argv[])
 	timeParallel = tstop - tstart;
 
 	printf("Input file: %s\n", filename);
-	// printf("Number of threads: %d\n", omp_get_max_threads());
+	printf("Number of threads: %d\n", omp_get_max_threads());
 	printf("Sequential execution time: %f\n", time);
 	printf("Parallel execution time: %f\n", timeParallel);
 

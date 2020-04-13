@@ -70,7 +70,7 @@ int main(int argc, char *argv[])
 			w = atoi(argv[2]);
 			cnt = atoi(argv[3]);
 			if (!h || !w || !cnt)
-				return 1;
+				MPI_Abort(MPI_COMM_WORLD, 1);
 		}
 
 		rgbParallel = (unsigned char *)malloc(3 * w * h * sizeof(unsigned char));

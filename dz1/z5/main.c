@@ -9,7 +9,7 @@
 #include "CPU_kernels.h"
 
 #define PI 3.14159265
-#define ACCURACY 100
+#define ACCURACY 20
 
 /************************************************************ 
  * This function reads the parameters from the file provided

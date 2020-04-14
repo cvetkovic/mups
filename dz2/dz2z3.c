@@ -412,6 +412,7 @@ int main(int argc, char *argv[])
 	int **fuzzy;
 	double **fuzzyPadded;
 	double **sharp;
+	double **sharpReduced;
 	double **sharpParallel;
 	double **sharpCropped;
 	double **convolution;
@@ -437,6 +438,7 @@ int main(int argc, char *argv[])
 		pgmsize(filename, &nx, &ny);
 
 		fuzzy = int2Dmalloc(nx, ny);
+		sharpReduced = double2Dmalloc(nx, ny);
 		sharpParallel = double2Dmalloc(nx - 2 * d, ny - 2 * d);
 
 		tstart = wtime();
@@ -501,6 +503,7 @@ int main(int argc, char *argv[])
 
 	dosharpenParallel(nx, ny, d, start, end, convolution, fuzzyPadded, sharp, sharpCropped);
 
+	MPI_Reduce(sharp, sharpReduced, nx * ny, MPI_DOUBLE, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD);
 	MPI_Reduce(sharpCropped, sharpParallel, (nx - 2 * d) * (ny - 2 * d), MPI_DOUBLE, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD);
 
 	if (rank == MASTER_RANK)
@@ -516,16 +519,18 @@ int main(int argc, char *argv[])
 
 		tstop = wtime();
 		time = tstop - tstart;
+
 		printf("Input file: %s\n", filename);
 		printf("Number of threads: %d\n", size);
 		printf("Sequential execution time: %f\n", time);
 		printf("Parallel execution time: %f\n", timeParallel);
 
-		compareSharp(nx, ny, sharpSequential, sharpParallel);
+		compareSharp(nx, ny, sharpSequential, sharpReduced);
 
 		putchar('\n');
 
 		free(fuzzy);
+		free(sharpReduced);
 		free(sharpParallel);
 		free(sharpSequential);
 	}

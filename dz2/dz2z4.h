@@ -22,12 +22,12 @@ typedef struct
 	int numSamples;
 	int aquisitionMatrixSize[3];
 	int reconstructionMatrixSize[3];
-	float kMax[3];
 	int gridSize[3];
+	int useLUT;
+	int binsize;
+	float kMax[3];
 	float oversample;
 	float kernelWidth;
-	int binsize;
-	int useLUT;
 } parameters;
 
 typedef struct
@@ -46,9 +46,15 @@ typedef struct
 	float imag;
 } cmplx;
 
+void complexSum(cmplx *a, cmplx *b, int *len, MPI_Datatype *type);
+
+void makeComplexType(MPI_Datatype *complexType);
+void makeSamplesType(MPI_Datatype *samplesType);
+void makeParametersType(MPI_Datatype *parametersType);
+
 void calculateLUT(float beta, float width, float **LUT, unsigned int *sizeLUT);
 
 int gridding_Gold(unsigned int n, parameters params, ReconstructionSample *sample, float *LUT, unsigned int sizeLUT, cmplx *gridData, float *sampleDensity);
-int gridding_Gold_Parallel(unsigned int n, parameters params, ReconstructionSample *sample, float *LUT, unsigned int sizeLUT, cmplx *gridData, float *sampleDensity);
+int gridding_Gold_Parallel(int start, int end, parameters params, ReconstructionSample *sample, float *LUT, unsigned int sizeLUT, cmplx *gridData, float *sampleDensity);
 
 #endif

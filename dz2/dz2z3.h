@@ -8,7 +8,7 @@
 #include <sys/time.h>
 #include <string.h>
 
-#define N 4
+#define N 1
 #define ACCURACY 0.01
 
 #define MAXLINE 128

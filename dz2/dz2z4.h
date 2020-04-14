@@ -8,7 +8,7 @@
 #include <string.h>
 
 #define N 4
-#define ACCURACY 0.01
+#define ACCURACY 30
 
 #define PI 3.14159265
 
@@ -23,8 +23,8 @@ typedef struct
 	int aquisitionMatrixSize[3];
 	int reconstructionMatrixSize[3];
 	int gridSize[3];
-	int useLUT;
 	int binsize;
+	int useLUT;
 	float kMax[3];
 	float oversample;
 	float kernelWidth;
@@ -45,12 +45,6 @@ typedef struct
 	float real;
 	float imag;
 } cmplx;
-
-void complexSum(cmplx *a, cmplx *b, int *len, MPI_Datatype *type);
-
-void makeComplexType(MPI_Datatype *complexType);
-void makeSamplesType(MPI_Datatype *samplesType);
-void makeParametersType(MPI_Datatype *parametersType);
 
 void calculateLUT(float beta, float width, float **LUT, unsigned int *sizeLUT);
 

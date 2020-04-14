@@ -43,7 +43,7 @@ void calculateLUT(float beta, float width, float **LUT, unsigned int *sizeLUT)
 		(*LUT) = (float *)malloc(size * sizeof(float));
 
 		unsigned int k;
-		
+
 		for (k = 0; k < size; ++k)
 		{
 			v = (((float)k) / ((float)size)) * cutoff2;
@@ -183,6 +183,28 @@ int gridding_Gold(unsigned int n, parameters params, ReconstructionSample *sampl
 			}
 		}
 	}
+}
+
+void createMPI_param_struct(MPI_Datatype *newType)
+{
+	MPI_Aint extent;
+	MPI_Type_extent(MPI_INT, &extent);
+
+	int blocklengths[] = {12, 5};
+	MPI_Aint offsets[] = {0, 12 * extent};
+	MPI_Datatype oldtypes[] = {MPI_INT, MPI_FLOAT};
+
+	MPI_Type_struct(2, blocklengths, offsets, oldtypes, newType);
+}
+
+void createMPI_sample_struct(MPI_Datatype *newType)
+{
+	MPI_Type_contiguous(6, MPI_FLOAT, newType);
+}
+
+void createMPI_cmplx_struct(MPI_Datatype *newType)
+{
+	MPI_Type_contiguous(2, MPI_FLOAT, newType);
 }
 
 int gridding_Gold_Parallel(int start, int end, parameters params, ReconstructionSample *sample, float *LUT, unsigned int sizeLUT, cmplx *gridData, float *sampleDensity)
@@ -378,62 +400,38 @@ void complexSum(cmplx *a, cmplx *b, int *length, MPI_Datatype *type)
 	}
 }
 
-void makeComplexType(MPI_Datatype *complexType)
-{
-	MPI_Type_contiguous(2, MPI_FLOAT, complexType);
-}
-
-void makeSamplesType(MPI_Datatype *samplesType)
-{
-	MPI_Type_contiguous(6, MPI_FLOAT, samplesType);
-}
-
-void makeParametersType(MPI_Datatype *parametersType)
-{
-	MPI_Aint lowerBound, extent;
-	MPI_Type_get_extent(MPI_INT, &lowerBound, &extent);
-
-	int blocklengths[] = { 12, 5 };
-	MPI_Aint offsets[] = { 0, 12 * extent };
-	MPI_Datatype types[] = { MPI_INT, MPI_FLOAT };
-
-	MPI_Type_create_struct(2, blocklengths, offsets, types, parametersType);
-}
-
 int main(int argc, char *argv[])
 {
 	char uksfile[256];
 	char uksdata[256];
+	parameters params;
 
 	FILE *uksfile_f = NULL;
 	FILE *uksdata_f = NULL;
-
-	parameters params;
 
 	unsigned int n;
 
 	int rank, size;
 	int chunk, start, end;
 
-	MPI_Datatype complexType;
-	MPI_Datatype samplesType;
-	MPI_Datatype parametersType;
-
-	MPI_Op operation;
-
 	MPI_Init(&argc, &argv);
 
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 	MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-	makeComplexType(&complexType);
-	makeSamplesType(&samplesType);
-	makeParametersType(&parametersType);
+	MPI_Datatype paramType;
+	MPI_Datatype sampleType;
+	MPI_Datatype cmplxType;
+	createMPI_param_struct(&paramType);
+	createMPI_sample_struct(&sampleType);
+	createMPI_cmplx_struct(&cmplxType);
 	
-	MPI_Type_commit(&samplesType);
-	MPI_Type_commit(&parametersType);
-
+	MPI_Op operation;
 	MPI_Op_create((MPI_User_function *) complexSum, 1, &operation);
+
+	MPI_Type_commit(&paramType);
+	MPI_Type_commit(&sampleType);
+	MPI_Type_commit(&cmplxType);
 
 	if (rank == MASTER_RANK)
 	{
@@ -452,6 +450,7 @@ int main(int argc, char *argv[])
 		strcat(uksdata, ".data");
 
 		uksfile_f = fopen(uksfile, "r");
+
 		if (uksfile_f == NULL)
 		{
 			printf("ERROR: Could not open %s\n", uksfile);
@@ -471,39 +470,56 @@ int main(int argc, char *argv[])
 		setParameters(uksfile_f, &params);
 	}
 
-	MPI_Bcast(&params, 1, parametersType, MASTER_RANK, MPI_COMM_WORLD);
+	MPI_Bcast(&params, 1, paramType, MASTER_RANK, MPI_COMM_WORLD);
+
+	printf("RANK %d - %d %d %d %d %f %f %f\n", rank, params.numSamples,
+		   params.gridSize[1], params.reconstructionMatrixSize[2],
+		   params.binsize, params.kMax[2], params.oversample, params.kernelWidth);
+	fflush(stdout);
 
 	ReconstructionSample *samples = (ReconstructionSample *)malloc(params.numSamples * sizeof(ReconstructionSample));
+	float *LUT, *LUTParallel;
+	unsigned int sizeLUT, sizeLUTParallel;
+
+	int gridNumElems = params.gridSize[0] * params.gridSize[1] * params.gridSize[2];
+
+	cmplx *gridData = (cmplx *)calloc(gridNumElems, sizeof(cmplx));
+	float *sampleDensity = (float *)calloc(gridNumElems, sizeof(float));
+	cmplx *gridDataParallel = (cmplx *)calloc(gridNumElems, sizeof(cmplx));
+	float *sampleDensityParallel = (float *)calloc(gridNumElems, sizeof(float));
 
 	if (rank == MASTER_RANK)
 	{
 		uksdata_f = fopen(uksdata, "rb");
+
+		if (uksdata_f == NULL)
+		{
+			printf("ERROR: Could not open data file\n");
+			MPI_Abort(MPI_COMM_WORLD, 1);
+		}
+
 		n = readSampleData(params, uksdata_f, samples);
 		fclose(uksdata_f);
 	}
 
 	MPI_Bcast(&n, 1, MPI_UNSIGNED, MASTER_RANK, MPI_COMM_WORLD);
-	MPI_Bcast(&samples, 1, samplesType, MASTER_RANK, MPI_COMM_WORLD);
+	MPI_Bcast(samples, params.numSamples, sampleType, MASTER_RANK, MPI_COMM_WORLD);
 
-	chunk = (n + size - 1) / size;
-	start = rank * chunk;
-	end = start + chunk < n ? start + chunk : n;
-
-	float *LUT;
-	unsigned int sizeLUT;
-
-	int gridNumElems = params.gridSize[0] * params.gridSize[1] * params.gridSize[2];
-
-	cmplx *gridData = (cmplx *)calloc(gridNumElems, sizeof(cmplx));
-	cmplx *gridDataReduced;
-	float *sampleDensity = (float *)calloc(gridNumElems, sizeof(float));
-	float *sampleDensityReduced;
-
-	if (rank == MASTER_RANK)
-	{
-		gridDataReduced = (cmplx *)calloc(gridNumElems, sizeof(cmplx));
-		sampleDensityReduced = (float *)calloc(gridNumElems, sizeof(float));
-	}
+	printf("RANK %d - %f %f %f %f %f %f\n", rank,
+		   samples[2].real,
+		   samples[2].imag,
+		   samples[2].kX,
+		   samples[2].kY,
+		   samples[2].kZ,
+		   samples[2].sdc);
+	printf("RANK %d - %f %f %f %f %f %f\n", rank,
+		   samples[20].real,
+		   samples[20].imag,
+		   samples[20].kX,
+		   samples[20].kY,
+		   samples[20].kZ,
+		   samples[20].sdc);
+	fflush(stdout);
 
 	double timeSequential, timeParallel;
 
@@ -511,32 +527,40 @@ int main(int argc, char *argv[])
 	{
 		float beta = PI * sqrt(4 * params.kernelWidth * params.kernelWidth / (params.oversample * params.oversample) * (params.oversample - .5) * (params.oversample - .5) - .8);
 
+		timeSequential = MPI_Wtime();
 		calculateLUT(beta, params.kernelWidth, &LUT, &sizeLUT);
+		timeSequential = MPI_Wtime() - timeSequential;
+
+		timeParallel = MPI_Wtime();
+		calculateLUT(beta, params.kernelWidth, &LUTParallel, &sizeLUTParallel);
+		timeParallel = MPI_Wtime() - timeParallel;
 	}
 
-	MPI_Barrier(MPI_COMM_WORLD);
-	if (rank == MASTER_RANK) timeParallel = MPI_Wtime();
+	chunk = (n + size - 1) / size;
+	start = rank * chunk;
+	end = start + chunk < n ? start + chunk : n;
 
-	gridding_Gold_Parallel(start, end, params, samples, LUT, sizeLUT, gridData, sampleDensity);
+	timeParallel += MPI_Wtime();
+	gridding_Gold_Parallel(start, end, params, samples, LUTParallel, sizeLUTParallel, gridData, sampleDensity);
+	timeParallel = MPI_Wtime() - timeParallel;
 
-	MPI_Reduce(gridData, gridDataReduced, gridNumElems, complexType, operation, MASTER_RANK, MPI_COMM_WORLD);
-	MPI_Reduce(sampleDensity, sampleDensityReduced, gridNumElems, MPI_FLOAT, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD);
+	MPI_Reduce(gridData, gridDataParallel, gridNumElems, cmplxType, operation, MASTER_RANK, MPI_COMM_WORLD);
+	MPI_Reduce(sampleDensity, sampleDensityParallel, gridNumElems, MPI_FLOAT, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD);
 
 	if (rank == MASTER_RANK)
 	{
-		timeParallel = MPI_Wtime() - timeParallel;
-
-		free(gridData);
 		free(sampleDensity);
-
-		gridData = (cmplx *)calloc(gridNumElems, sizeof(cmplx));
 		sampleDensity = (float *)calloc(gridNumElems, sizeof(float));
-		
-		timeSequential = MPI_Wtime();
+
+		timeSequential += MPI_Wtime();
 		gridding_Gold(n, params, samples, LUT, sizeLUT, gridData, sampleDensity);
 		timeSequential = MPI_Wtime() - timeSequential;
 
-		printf("Number of threds: %d\n", size);
+		for (int ii = 10000; ii < 10100; ii++) {
+			printf("%f %f\n", sampleDensity[ii], sampleDensityParallel[ii]);
+		}
+
+		printf("Number of threads: %d\n", size);
 		printf("Sequential execution time: %f\n", timeSequential);
 		printf("Parallel execution time: %f\n", timeParallel);
 
@@ -544,8 +568,8 @@ int main(int argc, char *argv[])
 
 		for (int i = 0; i < n; i++)
 		{
-			if (fabs(gridData[i].real - gridDataReduced[i].real) > ACCURACY ||
-				fabs(gridData[i].imag - gridDataReduced[i].imag) > ACCURACY)
+			if (fabs(gridData[i].real - gridDataParallel[i].real) > ACCURACY ||
+				fabs(gridData[i].imag - gridDataParallel[i].imag) > ACCURACY)
 			{
 				failed = 1;
 				break;
@@ -561,7 +585,7 @@ int main(int argc, char *argv[])
 
 		for (int i = 0; i < n; i++)
 		{
-			if (sampleDensity[i] != sampleDensityReduced[i])
+			if (sampleDensity[i] != sampleDensityParallel[i])
 			{
 				failed = 1;
 				break;
@@ -572,25 +596,27 @@ int main(int argc, char *argv[])
 			printf("TEST FAILED - sampleDensity\n");
 		else
 			printf("TEST PASSED - sampleDensity\n");
-		
-		free(gridDataReduced);
-		free(sampleDensityReduced);
 	}
 
 
 	if (params.useLUT)
 	{
 		free(LUT);
+		free(LUTParallel);
 	}
 	free(samples);
 	free(gridData);
+	free(gridDataParallel);
 	free(sampleDensity);
+	free(sampleDensityParallel);
 
 	putchar('\n');
 
 	MPI_Op_free(&operation);
-	MPI_Type_free(&samplesType);
-	MPI_Type_free(&parametersType);
+
+	MPI_Type_free(&paramType);
+	MPI_Type_free(&sampleType);
+	MPI_Type_free(&cmplxType);
 	MPI_Finalize();
 
 	return 0;

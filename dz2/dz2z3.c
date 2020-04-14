@@ -503,8 +503,10 @@ int main(int argc, char *argv[])
 
 	dosharpenParallel(nx, ny, d, start, end, convolution, fuzzyPadded, sharp, sharpCropped);
 
-	MPI_Reduce(sharp, sharpReduced, nx * ny, MPI_DOUBLE, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD);
-	MPI_Reduce(sharpCropped, sharpParallel, (nx - 2 * d) * (ny - 2 * d), MPI_DOUBLE, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD);
+	// MPI_Barrier(MPI_COMM_WORLD);
+
+	MPI_Reduce(&sharp[0][0], &sharpReduced[0][0], nx * ny, MPI_DOUBLE, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD);
+	MPI_Reduce(&sharpCropped[0][0], &sharpParallel[0][0], (nx - 2 * d) * (ny - 2 * d), MPI_DOUBLE, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD);
 
 	if (rank == MASTER_RANK)
 	{

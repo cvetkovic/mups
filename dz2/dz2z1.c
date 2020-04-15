@@ -50,7 +50,8 @@ int main(int argc, char *argv[])
 		{
 			fprintf(stderr, "Invalid number of processes!\n");
 			fprintf(stderr, "Active count: %d | Target count: %d\n", size, N);
-			MPI_Abort(MPI_COMM_WORLD, -1);
+			MPI_Abort(MPI_COMM_WORLD, 127);
+			return 1;
 		}
 
 		h = DEFAULT_H;
@@ -62,8 +63,12 @@ int main(int argc, char *argv[])
 			h = atoi(argv[1]);
 			w = atoi(argv[2]);
 			cnt = atoi(argv[3]);
+			
 			if (!h || !w || !cnt)
-				MPI_Abort(MPI_COMM_WORLD, 1);
+			{
+				MPI_Abort(MPI_COMM_WORLD, 130);
+				return 1;
+			}
 		}
 		
 		rgbReduced = (unsigned char *)malloc(3 * w * h * sizeof(unsigned char));

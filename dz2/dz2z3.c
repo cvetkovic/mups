@@ -207,12 +207,12 @@ double **dosharpen(char *infile, int nx, int ny)
 	int i, j, k, l;
 	double tstart, tstop, time;
 
-	int **fuzzy = int2Dmalloc(nx, ny);								/* Will store the fuzzy input image when it is first read in from file */
-	double **fuzzyPadded = double2Dmalloc(nx + 2 * d, ny + 2 * d);	/* Will store the fuzzy input image plus additional border padding */
-	double **convolutionPartial = double2Dmalloc(nx, ny);			/* Will store the convolution of the filter with parts of the fuzzy image computed by individual processes */
-	double **convolution = double2Dmalloc(nx, ny);					/* Will store the convolution of the filter with the full fuzzy image */
-	double **sharp = double2Dmalloc(nx, ny);						/* Will store the sharpened image obtained by adding rescaled convolution to the fuzzy image */
-	double **sharpCropped = double2Dmalloc(nx - 2 * d, ny - 2 * d); /* Will store the sharpened image cropped to remove a border layer distorted by the algorithm */
+	int **fuzzy = int2Dmalloc(nx, ny);
+	double **fuzzyPadded = double2Dmalloc(nx + 2 * d, ny + 2 * d);
+	double **convolutionPartial = double2Dmalloc(nx, ny);
+	double **convolution = double2Dmalloc(nx, ny);
+	double **sharp = double2Dmalloc(nx, ny);
+	double **sharpCropped = double2Dmalloc(nx - 2 * d, ny - 2 * d);
 
 	char outfile[256];
 	strcpy(outfile, infile);
@@ -228,16 +228,7 @@ double **dosharpen(char *infile, int nx, int ny)
 		}
 	}
 
-	// printf("Using a filter of size %d x %d\n", 2 * d + 1, 2 * d + 1);
-	// printf("\n");
-
-	// printf("Reading image file: %s\n", infile);
-	// fflush(stdout);
-
 	pgmread(infile, &fuzzy[0][0], nx, ny, &xpix, &ypix);
-
-	// printf("... done\n\n");
-	// fflush(stdout);
 
 	if (xpix == 0 || ypix == 0 || nx != xpix || ny != ypix)
 	{
@@ -262,10 +253,6 @@ double **dosharpen(char *infile, int nx, int ny)
 		}
 	}
 
-	// printf("Starting calculation ...\n");
-
-	// fflush(stdout);
-
 	tstart = wtime();
 
 	pixcount = 0;
@@ -288,10 +275,6 @@ double **dosharpen(char *infile, int nx, int ny)
 	tstop = wtime();
 	time = tstop - tstart;
 
-	// printf("... finished\n");
-	// printf("\n");
-	// fflush(stdout);
-
 	for (i = 0; i < nx; i++)
 	{
 		for (j = 0; j < ny; j++)
@@ -299,9 +282,6 @@ double **dosharpen(char *infile, int nx, int ny)
 			sharp[i][j] = fuzzyPadded[i + d][j + d] - scale / norm * convolution[i][j];
 		}
 	}
-
-	// printf("Writing output file: %s\n", outfile);
-	// printf("\n");
 
 	for (i = d; i < nx - d; i++)
 	{
@@ -313,19 +293,13 @@ double **dosharpen(char *infile, int nx, int ny)
 
 	pgmwrite(outfile, &sharpCropped[0][0], nx - 2 * d, ny - 2 * d);
 
-	// printf("... done\n");
-	// printf("\n");
-	// printf("Calculation time was %f seconds\n", time);
-	// fflush(stdout);
-
 	free(fuzzy);
 	free(fuzzyPadded);
 	free(convolutionPartial);
 	free(convolution);
-	// free(sharp);
-	free(sharpCropped);
+	free(sharp);
 
-	return sharp;
+	return sharpCropped;
 }
 
 double **makeFilterMatrix(int d)
@@ -343,34 +317,30 @@ double **makeFilterMatrix(int d)
 	return matrix;
 }
 
-void dosharpenParallel(int nx, int ny, int d, int start, int end, double **convolution, double **fuzzyPadded, double **sharp, double **sharpCropped)
+double dosharpenParallel(int count, int ny, double **convolution, double **filterMatrix, double **sharp, double **sharpCropped, double **fuzzyPadded)
 {
-	double norm = (2 * d - 1) * (2 * d - 1);
-	double scale = 2.0;
+	const int d = 8;
 
-	double **filterMatrix = makeFilterMatrix(d);
+	const double norm = (2 * d - 1) * (2 * d - 1);
+	const double scale = 2.0;
 
-	for (int count = start; count < end; count++)
+	const int c = scale / norm;
+
+	int i = count / ny;
+	int j = count % ny;
+
+	for (int k = -d; k <= d; k++)
 	{
-		int i = count / ny;
-		int j = count % ny;
-
-		for (int k = -d; k <= d; k++)
+		for (int l = -d; l <= d; l++)
 		{
-			for (int l = -d; l <= d; l++)
-			{
-				convolution[i][j] = convolution[i][j] + filterMatrix[k + d][l + d] * fuzzyPadded[i + d + k][j + d + l];
-			}
+			convolution[i][j] = convolution[i][j] + filterMatrix[k + d][l + d] * fuzzyPadded[i + d + k][j + d + l];
 		}
-
-		double c = scale / norm;
-		sharp[i][j] = fuzzyPadded[i + d][j + d] - c * convolution[i][j];
-
-		if (i < nx - 2 * d && j < ny - 2 * d)
-			sharpCropped[i][j] = sharp[i + d][j + d];
 	}
 
-	free(filterMatrix);
+	sharp[i][j] = fuzzyPadded[i + d][j + d] - c * convolution[i][j];
+	sharpCropped[i][j] = sharp[i + d][j + d];
+
+	return sharpCropped[i][j];
 }
 
 void compareSharp(int w, int h, double **sequential, double **parallel)
@@ -399,23 +369,14 @@ int main(int argc, char *argv[])
 {
 	const int d = 8;
 
-	int rank, size;
-	double tstart, tstop, time, timeParallel;
+	double timeSequential;
+	double timeParallel;
 
-	int chunk, start, end;
+	int rank, size;
 
 	char *filename;
+
 	int nx, ny;
-
-	char outfile[256];
-
-	int **fuzzy;
-	double **fuzzyPadded;
-	double **sharp;
-	double **sharpReduced;
-	double **sharpParallel;
-	double **sharpCropped;
-	double **convolution;
 
 	MPI_Init(&argc, &argv);
 
@@ -428,54 +389,48 @@ int main(int argc, char *argv[])
 		{
 			fprintf(stderr, "Invalid number of processes!\n");
 			fprintf(stderr, "Active count: %d | Target count: %d\n", size, N);
-			MPI_Abort(MPI_COMM_WORLD, -1);
+			MPI_Abort(MPI_COMM_WORLD, 127);
+			return 1;
 		}
 
 		if (argc < 2)
-			MPI_Abort(MPI_COMM_WORLD, 1);
+		{
+			MPI_Abort(MPI_COMM_WORLD, 130);
+			return 1;
+		}
 
 		filename = argv[1];
 		pgmsize(filename, &nx, &ny);
 
-		fuzzy = int2Dmalloc(nx, ny);
-		sharpReduced = double2Dmalloc(nx, ny);
-		sharpParallel = double2Dmalloc(nx - 2 * d, ny - 2 * d);
-
-		tstart = wtime();
+		timeParallel = wtime();
 	}
 
 	MPI_Bcast(&nx, 1, MPI_INT, MASTER_RANK, MPI_COMM_WORLD);
 	MPI_Bcast(&ny, 1, MPI_INT, MASTER_RANK, MPI_COMM_WORLD);
 
-	fuzzyPadded = double2Dmalloc(nx + 2 * d, ny + 2 * d);
-	sharp = double2Dmalloc(nx, ny);
-	sharpCropped = double2Dmalloc(nx - 2 * d, ny - 2 * d);
-	convolution = double2Dmalloc(nx, ny);
-
-	for (int i = 0; i < nx; i++)
-	{
-		for (int j = 0; j < ny; j++)
-		{
-			if (rank == MASTER_RANK) fuzzy[i][j] = 0;
-			sharp[i][j] = 0.0;
-		}
-	}
+	double **fuzzyPadded = double2Dmalloc(nx + 2 * d, ny + 2 * d);
+	double **sharpCropped = double2Dmalloc(nx - 2 * d, ny - 2 * d);
 
 	if (rank == MASTER_RANK)
 	{
-		strcpy(outfile, filename);
-		*(strchr(outfile, '.')) = '\0';
-		strcat(outfile, "_mpi_sharpened.pgm");
-
 		int xpix, ypix;
+		int **fuzzy = int2Dmalloc(nx, ny);
+
+		for (int i = 0; i < nx; i++)
+		{
+			for (int j = 0; j < ny; j++)
+			{
+				fuzzy[i][j] = 0;
+			}
+		}
 
 		pgmread(filename, &fuzzy[0][0], nx, ny, &xpix, &ypix);
 
 		if (xpix == 0 || ypix == 0 || nx != xpix || ny != ypix)
 		{
-			printf("Error reading %s\n", filename);
-			fflush(stdout);
-			exit(-1);
+			fprintf(stderr, "Error reading %s\n", filename);
+			MPI_Abort(MPI_COMM_WORLD, 127);
+			return 1;
 		}
 
 		for (int i = 0; i < nx + 2 * d; i++)
@@ -497,49 +452,113 @@ int main(int argc, char *argv[])
 
 	MPI_Bcast(&fuzzyPadded[0][0], (nx + 2 * d) * (ny + 2 * d), MPI_DOUBLE, MASTER_RANK, MPI_COMM_WORLD);
 
-	chunk = (nx * ny + size - 1) / size;
-	start = rank * chunk;
-	end = start + chunk < nx * ny ? start + chunk : nx * ny;
-
-	dosharpenParallel(nx, ny, d, start, end, convolution, fuzzyPadded, sharp, sharpCropped);
-
-	// MPI_Barrier(MPI_COMM_WORLD);
-
-	MPI_Reduce(&sharp[0][0], &sharpReduced[0][0], nx * ny, MPI_DOUBLE, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD);
-	MPI_Reduce(&sharpCropped[0][0], &sharpParallel[0][0], (nx - 2 * d) * (ny - 2 * d), MPI_DOUBLE, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD);
-
 	if (rank == MASTER_RANK)
 	{
-		tstop = wtime();
-		timeParallel = tstop - tstart;
+		const int jobCount = nx * ny;
 
-		pgmwrite(outfile, &sharpParallel[0][0], nx - 2 * d, ny - 2 * d);
+		int sentCount = 0;
+		int processedCount = 0;
 
-		tstart = wtime();
+		while (sentCount < size - 1)
+		{
+			MPI_Send(&sentCount, 1, MPI_INT, sentCount + 1, COUNT_TAG, MPI_COMM_WORLD);
+			sentCount++;
+		}
 
+		while (processedCount < jobCount)
+		{
+			int count;
+			MPI_Status status;
+
+			MPI_Recv(&count, 1, MPI_INT, MPI_ANY_SOURCE, COUNT_TAG, MPI_COMM_WORLD, &status);
+
+			int slaveRank = status.MPI_SOURCE;
+
+			int i = count / ny;
+			int j = count % ny;
+
+			MPI_Recv(&sharpCropped[i][j], 1, MPI_DOUBLE, slaveRank, RESULT_TAG, MPI_COMM_WORLD, &status);
+			processedCount++;
+
+			if (sentCount < jobCount)
+			{
+				MPI_Send(&sentCount, 1, MPI_INT, slaveRank, COUNT_TAG, MPI_COMM_WORLD);
+				sentCount++;
+			}
+			else
+			{
+				MPI_Request request;
+				MPI_Isend(&sentCount, 1, MPI_INT, slaveRank, STOP_TAG, MPI_COMM_WORLD, &request);
+			}
+		}
+
+		char outfile[256];
+
+		strcpy(outfile, filename);
+		*(strchr(outfile, '.')) = '\0';
+		strcat(outfile, "_mpi_sharpened.pgm");
+
+		pgmwrite(outfile, &sharpCropped[0][0], nx - 2 * d, ny - 2 * d);
+
+		timeParallel = wtime() - timeParallel;
+
+		timeSequential = wtime();
 		double **sharpSequential = dosharpen(filename, nx, ny);
-
-		tstop = wtime();
-		time = tstop - tstart;
+		timeSequential = wtime() - timeSequential;
 
 		printf("Input file: %s\n", filename);
 		printf("Number of threads: %d\n", size);
-		printf("Sequential execution time: %f\n", time);
+		printf("Sequential execution time: %f\n", timeSequential);
 		printf("Parallel execution time: %f\n", timeParallel);
 
-		compareSharp(nx, ny, sharpSequential, sharpReduced);
+		compareSharp(nx - 2 * d, ny - 2 * d, sharpSequential, sharpCropped);
 
 		putchar('\n');
 
-		free(fuzzy);
-		free(sharpReduced);
-		free(sharpParallel);
 		free(sharpSequential);
+	}
+	else // slave
+	{
+		double **convolution = double2Dmalloc(nx, ny);
+		double **sharp = double2Dmalloc(nx, ny);
+
+		for (int i = 0; i < nx; i++)
+		{
+			for (int j = 0; j < ny; j++)
+			{
+				sharp[i][j] = 0.0;
+			}
+		}
+
+		double **filterMatrix = makeFilterMatrix(d);
+
+		int count;
+
+		while (1)
+		{
+			MPI_Status status;
+			MPI_Recv(&count, 1, MPI_INT, MASTER_RANK, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+			
+			if (status.MPI_TAG == STOP_TAG)
+			{
+				break;
+			}
+			else
+			{
+				double result = 0.0; // = dosharpenParallel(count, ny, convolution, filterMatrix, sharp, sharpCropped, fuzzyPadded);
+
+				MPI_Request request;
+				MPI_Isend(&count, 1, MPI_INT, MASTER_RANK, COUNT_TAG, MPI_COMM_WORLD, &request);
+				MPI_Isend(&result, 1, MPI_DOUBLE, MASTER_RANK, RESULT_TAG, MPI_COMM_WORLD, &request);
+			}
+		}
+
+		free(sharp);
+		free(convolution);
+		free(filterMatrix);
 	}
 
 	free(fuzzyPadded);
-	free(convolution);
-	free(sharp);
 	free(sharpCropped);
 
 	MPI_Finalize();

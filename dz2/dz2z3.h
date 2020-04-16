@@ -30,7 +30,7 @@ void pgmread(char *filename, void *vp, int nxmax, int nymax, int *nx, int *ny);
 void pgmwrite(char *filename, void *vx, int nx, int ny);
 
 double **dosharpen(char *infile, int nx, int ny);
-double dosharpenParallel(int count, int ny, double **convolution, double **filterMatrix, double **sharp, double **sharpCropped, double **fuzzyPadded);
+void dosharpenParallel(int i, int j, int nx, int ny, double **convolution, double **filterMatrix, double **sharp, double **sharpCropped, double **fuzzyPadded);
 double filter(int d, int i, int j);
 
 int **int2Dmalloc(int nx, int ny);

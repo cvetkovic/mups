@@ -317,7 +317,7 @@ double **makeFilterMatrix(int d)
 	return matrix;
 }
 
-double dosharpenParallel(int count, int ny, double **convolution, double **filterMatrix, double **sharp, double **sharpCropped, double **fuzzyPadded)
+void dosharpenParallel(int i, int j, int nx, int ny, double **convolution, double **filterMatrix, double **sharp, double **sharpCropped, double **fuzzyPadded)
 {
 	const int d = 8;
 
@@ -325,9 +325,6 @@ double dosharpenParallel(int count, int ny, double **convolution, double **filte
 	const double scale = 2.0;
 
 	const int c = scale / norm;
-
-	int i = count / ny;
-	int j = count % ny;
 
 	for (int k = -d; k <= d; k++)
 	{
@@ -338,9 +335,9 @@ double dosharpenParallel(int count, int ny, double **convolution, double **filte
 	}
 
 	sharp[i][j] = fuzzyPadded[i + d][j + d] - c * convolution[i][j];
-	sharpCropped[i][j] = sharp[i + d][j + d];
 
-	return sharpCropped[i][j];
+	if (i >= d && i < nx - d && j >= d && j < ny - d)
+		sharpCropped[i - d][j - d] = sharp[i][j];
 }
 
 void compareSharp(int w, int h, double **sequential, double **parallel)
@@ -477,7 +474,9 @@ int main(int argc, char *argv[])
 			int i = count / ny;
 			int j = count % ny;
 
-			MPI_Recv(&sharpCropped[i][j], 1, MPI_DOUBLE, slaveRank, RESULT_TAG, MPI_COMM_WORLD, &status);
+			if (i >= d && i < nx - d && j >= d && j < ny - d)
+				MPI_Recv(&sharpCropped[i - d][j - d], 1, MPI_DOUBLE, slaveRank, RESULT_TAG, MPI_COMM_WORLD, &status);
+
 			processedCount++;
 
 			if (sentCount < jobCount)
@@ -545,11 +544,16 @@ int main(int argc, char *argv[])
 			}
 			else
 			{
-				double result = 0.0; // = dosharpenParallel(count, ny, convolution, filterMatrix, sharp, sharpCropped, fuzzyPadded);
+				int i = count / ny;
+				int j = count % ny;
+
+				dosharpenParallel(i, j, nx, ny, convolution, filterMatrix, sharp, sharpCropped, fuzzyPadded);
 
 				MPI_Request request;
 				MPI_Isend(&count, 1, MPI_INT, MASTER_RANK, COUNT_TAG, MPI_COMM_WORLD, &request);
-				MPI_Isend(&result, 1, MPI_DOUBLE, MASTER_RANK, RESULT_TAG, MPI_COMM_WORLD, &request);
+
+				if (i >= d && i < nx - d && j >= d && j < ny - d)
+					MPI_Isend(&sharpCropped[i - d][j - d], 1, MPI_DOUBLE, MASTER_RANK, RESULT_TAG, MPI_COMM_WORLD, &request);
 			}
 		}
 

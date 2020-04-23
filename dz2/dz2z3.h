@@ -18,19 +18,12 @@
 
 char c[MAXLINE];
 
-enum Tags
-{
-	COUNT_TAG,
-	RESULT_TAG,
-	STOP_TAG
-};
-
 void pgmsize(char *filename, int *nx, int *ny);
 void pgmread(char *filename, void *vp, int nxmax, int nymax, int *nx, int *ny);
 void pgmwrite(char *filename, void *vx, int nx, int ny);
 
 double **dosharpen(char *infile, int nx, int ny);
-void dosharpenParallel(int i, int j, int nx, int ny, double **convolution, double **filterMatrix, double **sharp, double **sharpCropped, double **fuzzyPadded);
+void dosharpenParallel(int start, int end, int nx, int ny, double **convolution, double **filterMatrix, double **sharp, double **sharpCropped, double **fuzzyPadded);
 double filter(int d, int i, int j);
 
 int **int2Dmalloc(int nx, int ny);

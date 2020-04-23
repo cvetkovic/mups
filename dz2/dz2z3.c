@@ -317,27 +317,46 @@ double **makeFilterMatrix(int d)
 	return matrix;
 }
 
-void dosharpenParallel(int i, int j, int nx, int ny, double **convolution, double **filterMatrix, double **sharp, double **sharpCropped, double **fuzzyPadded)
+void dosharpenParallel(int start, int end, int nx, int ny, double **convolution, double **filterMatrix, double **sharp, double **sharpCropped, double **fuzzyPadded)
 {
 	const int d = 8;
+
+	int i, j, k, l;
 
 	const double norm = (2 * d - 1) * (2 * d - 1);
 	const double scale = 2.0;
 
 	const int c = scale / norm;
 
-	for (int k = -d; k <= d; k++)
+	for (i = start; i < end; i++)
 	{
-		for (int l = -d; l <= d; l++)
+		for (j = 0; j < ny; j++)
 		{
-			convolution[i][j] = convolution[i][j] + filterMatrix[k + d][l + d] * fuzzyPadded[i + d + k][j + d + l];
+			for (k = -d; k <= d; k++)
+			{
+				for (l = -d; l <= d; l++)
+				{
+					convolution[i][j] = convolution[i][j] + filterMatrix[k + d][l + d] * fuzzyPadded[i + d + k][j + d + l];
+				}
+			}
 		}
 	}
 
-	sharp[i][j] = fuzzyPadded[i + d][j + d] - c * convolution[i][j];
+	for (i = start; i < end; i++)
+	{
+		for (j = 0; j < ny; j++)
+		{
+			sharp[i][j] = fuzzyPadded[i + d][j + d] - scale / norm * convolution[i][j];
+		}
+	}
 
-	if (i >= d && i < nx - d && j >= d && j < ny - d)
-		sharpCropped[i - d][j - d] = sharp[i][j];
+	for (i = d; i < nx - d; i++)
+	{
+		for (j = d; j < ny - d; j++)
+		{
+			sharpCropped[i - d][j - d] = sharp[i][j];
+		}
+	}
 }
 
 void compareSharp(int w, int h, double **sequential, double **parallel)
@@ -370,6 +389,7 @@ int main(int argc, char *argv[])
 	double timeParallel;
 
 	int rank, size;
+	int chunk, start, end;
 
 	char *filename;
 
@@ -382,13 +402,13 @@ int main(int argc, char *argv[])
 
 	if (rank == MASTER_RANK)
 	{
-		if (size != N)
-		{
-			fprintf(stderr, "Invalid number of processes!\n");
-			fprintf(stderr, "Active count: %d | Target count: %d\n", size, N);
-			MPI_Abort(MPI_COMM_WORLD, 127);
-			return 1;
-		}
+		// if (size != N)
+		// {
+		// 	fprintf(stderr, "Invalid number of processes!\n");
+		// 	fprintf(stderr, "Active count: %d | Target count: %d\n", size, N);
+		// 	MPI_Abort(MPI_COMM_WORLD, 127);
+		// 	return 1;
+		// }
 
 		if (argc < 2)
 		{
@@ -407,6 +427,20 @@ int main(int argc, char *argv[])
 
 	double **fuzzyPadded = double2Dmalloc(nx + 2 * d, ny + 2 * d);
 	double **sharpCropped = double2Dmalloc(nx - 2 * d, ny - 2 * d);
+	double **sharpCroppedReduced = double2Dmalloc(nx - 2 * d, ny - 2 * d);
+
+	double **convolution = double2Dmalloc(nx, ny);
+	double **sharp = double2Dmalloc(nx, ny);
+
+	for (int i = 0; i < nx; i++)
+	{
+		for (int j = 0; j < ny; j++)
+		{
+			sharp[i][j] = 0.0;
+		}
+	}
+
+	double **filterMatrix = makeFilterMatrix(d);
 
 	if (rank == MASTER_RANK)
 	{
@@ -449,55 +483,25 @@ int main(int argc, char *argv[])
 
 	MPI_Bcast(&fuzzyPadded[0][0], (nx + 2 * d) * (ny + 2 * d), MPI_DOUBLE, MASTER_RANK, MPI_COMM_WORLD);
 
+	const int jobCount = nx;
+
+	chunk = (jobCount + size - 1) / size;
+	start = rank * chunk;
+	end = start + chunk < jobCount ? start + chunk : jobCount;
+
+	dosharpenParallel(start, end, nx, ny, convolution, filterMatrix, sharp, sharpCropped, fuzzyPadded);
+
+	MPI_Reduce(&sharpCropped[0][0], &sharpCroppedReduced[0][0], (nx - 2 * d) * (ny - 2 * d), MPI_DOUBLE, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD);
+
 	if (rank == MASTER_RANK)
 	{
-		const int jobCount = nx * ny;
-
-		int sentCount = 0;
-		int processedCount = 0;
-
-		while (sentCount < size - 1)
-		{
-			MPI_Send(&sentCount, 1, MPI_INT, sentCount + 1, COUNT_TAG, MPI_COMM_WORLD);
-			sentCount++;
-		}
-
-		while (processedCount < jobCount)
-		{
-			int count;
-			MPI_Status status;
-
-			MPI_Recv(&count, 1, MPI_INT, MPI_ANY_SOURCE, COUNT_TAG, MPI_COMM_WORLD, &status);
-
-			int slaveRank = status.MPI_SOURCE;
-
-			int i = count / ny;
-			int j = count % ny;
-
-			if (i >= d && i < nx - d && j >= d && j < ny - d)
-				MPI_Recv(&sharpCropped[i - d][j - d], 1, MPI_DOUBLE, slaveRank, RESULT_TAG, MPI_COMM_WORLD, &status);
-
-			processedCount++;
-
-			if (sentCount < jobCount)
-			{
-				MPI_Send(&sentCount, 1, MPI_INT, slaveRank, COUNT_TAG, MPI_COMM_WORLD);
-				sentCount++;
-			}
-			else
-			{
-				MPI_Request request;
-				MPI_Isend(&sentCount, 1, MPI_INT, slaveRank, STOP_TAG, MPI_COMM_WORLD, &request);
-			}
-		}
-
 		char outfile[256];
 
 		strcpy(outfile, filename);
 		*(strchr(outfile, '.')) = '\0';
 		strcat(outfile, "_mpi_sharpened.pgm");
 
-		pgmwrite(outfile, &sharpCropped[0][0], nx - 2 * d, ny - 2 * d);
+		pgmwrite(outfile, &sharpCroppedReduced[0][0], nx - 2 * d, ny - 2 * d);
 
 		timeParallel = wtime() - timeParallel;
 
@@ -510,60 +514,19 @@ int main(int argc, char *argv[])
 		printf("Sequential execution time: %f\n", timeSequential);
 		printf("Parallel execution time: %f\n", timeParallel);
 
-		compareSharp(nx - 2 * d, ny - 2 * d, sharpSequential, sharpCropped);
+		compareSharp(nx - 2 * d, ny - 2 * d, sharpSequential, sharpCroppedReduced);
 
 		putchar('\n');
 
 		free(sharpSequential);
 	}
-	else // slave
-	{
-		double **convolution = double2Dmalloc(nx, ny);
-		double **sharp = double2Dmalloc(nx, ny);
-
-		for (int i = 0; i < nx; i++)
-		{
-			for (int j = 0; j < ny; j++)
-			{
-				sharp[i][j] = 0.0;
-			}
-		}
-
-		double **filterMatrix = makeFilterMatrix(d);
-
-		int count;
-
-		while (1)
-		{
-			MPI_Status status;
-			MPI_Recv(&count, 1, MPI_INT, MASTER_RANK, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-			
-			if (status.MPI_TAG == STOP_TAG)
-			{
-				break;
-			}
-			else
-			{
-				int i = count / ny;
-				int j = count % ny;
-
-				dosharpenParallel(i, j, nx, ny, convolution, filterMatrix, sharp, sharpCropped, fuzzyPadded);
-
-				MPI_Request request;
-				MPI_Isend(&count, 1, MPI_INT, MASTER_RANK, COUNT_TAG, MPI_COMM_WORLD, &request);
-
-				if (i >= d && i < nx - d && j >= d && j < ny - d)
-					MPI_Isend(&sharpCropped[i - d][j - d], 1, MPI_DOUBLE, MASTER_RANK, RESULT_TAG, MPI_COMM_WORLD, &request);
-			}
-		}
-
-		free(sharp);
-		free(convolution);
-		free(filterMatrix);
-	}
 
 	free(fuzzyPadded);
 	free(sharpCropped);
+
+	free(sharp);
+	free(convolution);
+	free(filterMatrix);
 
 	MPI_Finalize();
 

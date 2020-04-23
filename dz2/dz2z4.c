@@ -437,13 +437,13 @@ int main(int argc, char *argv[])
 
 	if (rank == MASTER_RANK)
 	{
-		if (size != N)
-		{
-			fprintf(stderr, "Invalid number of processes!\n");
-			fprintf(stderr, "Active count: %d | Target count: %d\n", size, N);
-			MPI_Abort(MPI_COMM_WORLD, 127);
-			return 1;
-		}
+		// if (size != N)
+		// {
+		// 	fprintf(stderr, "Invalid number of processes!\n");
+		// 	fprintf(stderr, "Active count: %d | Target count: %d\n", size, N);
+		// 	MPI_Abort(MPI_COMM_WORLD, 127);
+		// 	return 1;
+		// }
 
 		if (argc != 3)
 		{
@@ -584,6 +584,8 @@ int main(int argc, char *argv[])
 			printf("TEST FAILED - sampleDensity\n");
 		else
 			printf("TEST PASSED - sampleDensity\n");
+		
+		putchar('\n');
 	}
 
 	if (params.useLUT)

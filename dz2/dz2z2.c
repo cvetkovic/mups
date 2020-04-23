@@ -53,13 +53,13 @@ int main(int argc, char *argv[])
 
 	if (rank == MASTER_RANK)
 	{
-		if (size != N)
-		{
-			fprintf(stderr, "Invalid number of processes!\n");
-			fprintf(stderr, "Active count: %d | Target count: %d\n", size, N);
-			MPI_Abort(MPI_COMM_WORLD, 127);
-			return 1;
-		}
+		// if (size != N)
+		// {
+		// 	fprintf(stderr, "Invalid number of processes!\n");
+		// 	fprintf(stderr, "Active count: %d | Target count: %d\n", size, N);
+		// 	MPI_Abort(MPI_COMM_WORLD, 127);
+		// 	return 1;
+		// }
 
 		h = DEFAULT_H;
 		w = DEFAULT_W;
@@ -148,7 +148,7 @@ int main(int argc, char *argv[])
 		timeSequential = MPI_Wtime() - timeSequential;
 
 		printf("Input values: %d %d %d\n", h, w, cnt);
-		printf("Number of threads: %d\n", size);
+		printf("Number of threads: %d (%d slave(s))\n", size, size - 1);
 		printf("Sequential execution time: %f\n", timeSequential);
 		printf("Parallel execution time: %f\n", timeParallel);
 

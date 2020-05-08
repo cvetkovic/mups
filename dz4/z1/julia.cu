@@ -1,3 +1,4 @@
+# include <math.h>
 # include <stdio.h>
 # include <stdlib.h>
 # include <string.h>
@@ -6,8 +7,8 @@
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 
-# define DEFAULT_H 1000
-# define DEFAULT_W 1000
+# define DEFAULT_H 500
+# define DEFAULT_W 500
 # define DEFAULT_CNT 200
 # define DEFAULT_FILENAME "julia"
 
@@ -27,7 +28,7 @@ void tga_compare(int w, int h, unsigned char* rgb_sequential, unsigned char* rgb
 
 	for (int i = 0; i < 3 * w * h; i++)
 	{
-		if (abs(rgb_sequential[i] - rgb_parallel[i]) > ACCURACY)
+		if (fabs(rgb_sequential[i] - rgb_parallel[i]) > ACCURACY)
 		{
 			failed = 1;
 			break;
@@ -48,8 +49,6 @@ int main(int argc, char* argv[]) {
 	char buffer[256];
 	unsigned char* rgb;
 	unsigned char* rgbParallel;
-	double t1;
-	double t2;
 	float xl = -1.5;
 	float xr = +1.5;
 	float yb = -1.5;
@@ -73,33 +72,22 @@ int main(int argc, char* argv[]) {
 	strcat(filename, buffer);
 	strcat(filename, ".tga");
 
-	timestamp();
-	printf("--------------------------------------------------------------\n");
-	printf("JULIA Set\n");
-	printf("  Plot a version of the Julia set for Z(k+1)=Z(k)^2-0.8+0.156i\n");
-
-	//double timeSequential = timestamp();
+	clock_t timeSequential = clock();
 	rgb = julia_set(w, h, cnt, xl, xr, yb, yt);
-	//timeSequential = timestamp() - timeSequential;
+	timeSequential = clock() - timeSequential;
 
-	//double timeParallel = timestamp();
+	double t_seq = (double)(timeSequential) / CLOCKS_PER_SEC;
+	printf("\tSequential execution time: %f\n", t_seq);
+
 	rgbParallel = julia_set_parallel(w, h, cnt, xl, xr, yb, yt);
-	//timeParallel = timestamp() - timeParallel;
-
-	//printf("\Sequential execution time: %f\n", timeSequential);
-	//printf("\tParallel execution time: %f\n", timeParallel);
 
 	tga_compare(w, h, rgb, rgbParallel);
+
+	tga_write(w, h, rgb, "sequential.tga");
 	tga_write(w, h, rgbParallel, filename);
 
 	free(rgb);
 	free(rgbParallel);
-
-	printf("\n");
-	printf("JULIA set:\n");
-	printf("  Normal end of execution.\n");
-
-	timestamp();
 
 	return 0;
 }
@@ -169,39 +157,30 @@ int julia(int w, int h, float xl, float xr, float yb, float yt, int i, int j, in
 	return 1;
 }
 
+#define TILE_WIDTH 16
+
 __global__
-void juliaValueKernel(void* rgb_void, int w, int h, int cnt, float xl, float xr, float yb, float yt)
+void juliaValueKernel(void* rgb_void, int w, int h, int cnt, float xl, float xr, float yb, float yt, int WIDTH, int HEIGHT)
 {
-	unsigned char* rgb = (unsigned char*)rgb_void;
-	int i, j;
+	int i = blockIdx.y * TILE_WIDTH + threadIdx.y;
+	int j = blockIdx.x * TILE_WIDTH + threadIdx.x;
 
-	j = threadIdx.x;
-	i = blockIdx.x;
+	if (i < w && j < h) {
+		unsigned char* rgb = (unsigned char*)rgb_void;
 
-	/*for (int k = 0; k < w * h; k++)
-		rgb[k] = 128;*/
+		int juliaValue;
+		julia_parallel(w, h, xl, xr, yb, yt, i, j, cnt, &juliaValue);
 
-		/*for (j = 0; j < w; j++) {
-			for (i = 0; i < h; i++) {*/
-	int juliaValue;
-	julia_parallel(w, h, xl, xr, yb, yt, i, j, cnt, &juliaValue);
+		int k = 3 * (j * w + i);
 
-	int k = 3 * (j * w + i);
-
-	rgb[k] = 255 * (1 - juliaValue);
-	rgb[k + 1] = 255 * (1 - juliaValue);
-	rgb[k + 2] = 255;
-	/*}
-}*/
+		rgb[k] = 255 * (1 - juliaValue);
+		rgb[k + 1] = 255 * (1 - juliaValue);
+		rgb[k + 2] = 255;
+	}
 }
 
 unsigned char* julia_set_parallel(int w, int h, int cnt, float xl, float xr, float yb, float yt)
 {
-	int i;
-	int j;
-	int juliaValue;
-	int k;
-
 	unsigned char* rgb;
 	void* dev_rgb;
 
@@ -210,11 +189,31 @@ unsigned char* julia_set_parallel(int w, int h, int cnt, float xl, float xr, flo
 	rgb = (unsigned char*)malloc(size_rgb);
 	cudaMalloc(&dev_rgb, size_rgb);
 
-	// make two h times w blocks
+	/*const int numOfElements = w * h;
+	const int tileArea = TILE_WIDTH * TILE_WIDTH;
 
-	//juliaValueKernel((void*)rgb, w, h, cnt, xl, xr, yb, yt);
-	juliaValueKernel << < h, w >> > ((void*)dev_rgb, w, h, cnt, xl, xr, yb, yt);
-	//cudaDeviceSynchronize();
+	int numOfBlocks = numOfElements / tileArea;
+	if (numOfElements % tileArea)
+		numOfBlocks++;*/
+	double tx = ceil((double)w / TILE_WIDTH);
+	double ty = ceil((double)h / TILE_WIDTH);
+	printf("%f %f\n", tx, ty);
+
+	dim3 gridSize((int)tx, (int)ty);
+	dim3 blockSize(TILE_WIDTH, TILE_WIDTH);
+
+	cudaEvent_t start, stop;
+	cudaEventCreate(&start);
+	cudaEventCreate(&stop);
+
+	cudaEventRecord(start);
+	juliaValueKernel << < gridSize, blockSize >> > ((void*)dev_rgb, w, h, cnt, xl, xr, yb, yt, w, h);
+	cudaEventRecord(stop);
+
+	cudaEventSynchronize(stop);
+	float ms = 0;
+	cudaEventElapsedTime(&ms, start, stop);
+	printf("\tParallel execution time: %f\n", ms);
 
 	cudaMemcpy(rgb, dev_rgb, size_rgb, cudaMemcpyDeviceToHost);
 	cudaFree(dev_rgb);
@@ -278,9 +277,7 @@ void tga_write(int w, int h, unsigned char rgb[], char* filename)
 
 	fclose(file_unit);
 
-	printf("\n");
-	printf("TGA_WRITE:\n");
-	printf("  Graphics data saved as '%s'\n", filename);
+	printf("--> Graphics data saved as '%s'\n", filename);
 
 	return;
 }

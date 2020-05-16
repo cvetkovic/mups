@@ -1,13 +1,13 @@
 #!/bin/bash
 
-/usr/local/cuda/bin/nvcc -lm -o julia julia.cu 
+/usr/local/cuda/bin/nvcc -lm -o dz4z1 dz4z1.cu 
 
-./julia 500 500 200
-./julia 500 500 500
-./julia 500 500 1000
-./julia 1000 1000 200
-./julia 1000 1000 500
-./julia 1000 1000 1000
-./julia 2000 1000 200
-./julia 2000 1000 500
-./julia 2000 1000 1000
+./dz4z1 500 500 200
+./dz4z1 500 500 500
+./dz4z1 500 500 1000
+./dz4z1 1000 1000 200
+./dz4z1 1000 1000 500
+./dz4z1 1000 1000 1000
+./dz4z1 2000 1000 200
+./dz4z1 2000 1000 500
+./dz4z1 2000 1000 1000

@@ -1,32 +1,8 @@
-#include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include "dz4z2.cuh"
 
-#define ACCURACY 0.01
-
-#define MAXLINE 128
-#define PIXPERLINE 16
-
-char c[MAXLINE];
-
-void pgmsize(char* filename, int* nx, int* ny);
-void pgmread(char* filename, void* vp, int nxmax, int nymax, int* nx, int* ny);
-void pgmwrite(char* filename, void* vx, int nx, int ny);
-
-double** dosharpen(char* infile, int nx, int ny);
-//double** dosharpenParallel(char* infile, int nx, int ny);
-double filter(int d, int i, int j);
-
-int** int2Dmalloc(int nx, int ny);
-double** double2Dmalloc(int nx, int ny);
-
-//void compareSharp(int w, int h, double** sequential, double** parallel);
-
-double wtime();
-void pgmsize(char* filename, int* nx, int* ny)
+void pgmsize(char *filename, int *nx, int *ny)
 {
-	FILE* fp;
+	FILE *fp;
 
 	if (NULL == (fp = fopen(filename, "r")))
 	{
@@ -42,13 +18,13 @@ void pgmsize(char* filename, int* nx, int* ny)
 	fclose(fp);
 }
 
-void pgmread(char* filename, void* vp, int nxmax, int nymax, int* nx, int* ny)
+void pgmread(char *filename, void *vp, int nxmax, int nymax, int *nx, int *ny)
 {
-	FILE* fp;
+	FILE *fp;
 
 	int nxt, nyt, i, j, t;
 
-	int* pixmap = (int*)vp;
+	int *pixmap = (int *)vp;
 
 	if (NULL == (fp = fopen(filename, "r")))
 	{
@@ -68,7 +44,7 @@ void pgmread(char* filename, void* vp, int nxmax, int nymax, int* nx, int* ny)
 	{
 		fprintf(stderr, "pgmread: image larger than array\n");
 		fprintf(stderr, "nxmax, nymax, nxt, nyt = %d, %d, %d, %d\n",
-			nxmax, nymax, nxt, nyt);
+				nxmax, nymax, nxt, nyt);
 		exit(-1);
 	}
 
@@ -86,16 +62,16 @@ void pgmread(char* filename, void* vp, int nxmax, int nymax, int* nx, int* ny)
 	fclose(fp);
 }
 
-void pgmwrite(char* filename, void* vx, int nx, int ny)
+void pgmwrite(char *filename, void *vx, int nx, int ny)
 {
-	FILE* fp;
+	FILE *fp;
 
 	int i, j, k, grey;
 
 	double xmin, xmax, tmp;
 	double thresh = 255.0;
 
-	double* x = (double*)vx;
+	double *x = (double *)vx;
 
 	if (NULL == (fp = fopen(filename, "w")))
 	{
@@ -125,7 +101,6 @@ void pgmwrite(char* filename, void* vx, int nx, int ny)
 	{
 		for (i = 0; i < nx; i++)
 		{
-
 			tmp = x[j + ny * i];
 
 			if (xmin < 0 || xmax > thresh)
@@ -155,7 +130,9 @@ void pgmwrite(char* filename, void* vx, int nx, int ny)
 
 double wtime(void)
 {
-	return 0;
+	struct timeval tp;
+	gettimeofday(&tp, NULL);
+	return tp.tv_sec + tp.tv_usec / (double)1.0e6;
 }
 
 double filter(int d, int i, int j)
@@ -183,14 +160,14 @@ double filter(int d, int i, int j)
 	return (filter0 * (1.0 - delta) * exp(-delta));
 }
 
-int** int2Dmalloc(int nx, int ny)
+int **int2Dmalloc(int nx, int ny)
 {
 	int i;
-	int** idata;
+	int **idata;
 
-	idata = (int**)malloc(nx * sizeof(int*) + nx * ny * sizeof(int));
+	idata = (int **)malloc(nx * sizeof(int *) + nx * ny * sizeof(int));
 
-	idata[0] = (int*)(idata + nx);
+	idata[0] = (int *)(idata + nx);
 
 	for (i = 1; i < nx; i++)
 	{
@@ -200,14 +177,14 @@ int** int2Dmalloc(int nx, int ny)
 	return idata;
 }
 
-double** double2Dmalloc(int nx, int ny)
+double **double2Dmalloc(int nx, int ny)
 {
 	int i;
-	double** ddata;
+	double **ddata;
 
-	ddata = (double**)malloc(nx * sizeof(double*) + nx * ny * sizeof(double));
+	ddata = (double **)malloc(nx * sizeof(double *) + nx * ny * sizeof(double));
 
-	ddata[0] = (double*)(ddata + nx);
+	ddata[0] = (double *)(ddata + nx);
 
 	for (i = 1; i < nx; i++)
 	{
@@ -217,7 +194,7 @@ double** double2Dmalloc(int nx, int ny)
 	return ddata;
 }
 
-double** dosharpen(char* infile, int nx, int ny)
+double **dosharpen(char *infile, int nx, int ny)
 {
 	int d = 8;
 
@@ -229,12 +206,12 @@ double** dosharpen(char* infile, int nx, int ny)
 	int i, j, k, l;
 	double tstart, tstop, time;
 
-	int** fuzzy = int2Dmalloc(nx, ny);								/* Will store the fuzzy input image when it is first read in from file */
-	double** fuzzyPadded = double2Dmalloc(nx + 2 * d, ny + 2 * d);  /* Will store the fuzzy input image plus additional border padding */
-	double** convolutionPartial = double2Dmalloc(nx, ny);			/* Will store the convolution of the filter with parts of the fuzzy image computed by individual processes */
-	double** convolution = double2Dmalloc(nx, ny);					/* Will store the convolution of the filter with the full fuzzy image */
-	double** sharp = double2Dmalloc(nx, ny);						/* Will store the sharpened image obtained by adding rescaled convolution to the fuzzy image */
-	double** sharpCropped = double2Dmalloc(nx - 2 * d, ny - 2 * d); /* Will store the sharpened image cropped to remove a border layer distorted by the algorithm */
+	int **fuzzy = int2Dmalloc(nx, ny);
+	double **fuzzyPadded = double2Dmalloc(nx + 2 * d, ny + 2 * d);
+	double **convolutionPartial = double2Dmalloc(nx, ny);
+	double **convolution = double2Dmalloc(nx, ny);
+	double **sharp = double2Dmalloc(nx, ny);
+	double **sharpCropped = double2Dmalloc(nx - 2 * d, ny - 2 * d);
 
 	char outfile[256];
 	strcpy(outfile, infile);
@@ -250,16 +227,7 @@ double** dosharpen(char* infile, int nx, int ny)
 		}
 	}
 
-	// printf("Using a filter of size %d x %d\n", 2 * d + 1, 2 * d + 1);
-	// printf("\n");
-
-	// printf("Reading image file: %s\n", infile);
-	// fflush(stdout);
-
 	pgmread(infile, &fuzzy[0][0], nx, ny, &xpix, &ypix);
-
-	// printf("... done\n\n");
-	// fflush(stdout);
 
 	if (xpix == 0 || ypix == 0 || nx != xpix || ny != ypix)
 	{
@@ -284,10 +252,6 @@ double** dosharpen(char* infile, int nx, int ny)
 		}
 	}
 
-	// printf("Starting calculation ...\n");
-
-	// fflush(stdout);
-
 	tstart = wtime();
 
 	pixcount = 0;
@@ -310,10 +274,6 @@ double** dosharpen(char* infile, int nx, int ny)
 	tstop = wtime();
 	time = tstop - tstart;
 
-	// printf("... finished\n");
-	// printf("\n");
-	// fflush(stdout);
-
 	for (i = 0; i < nx; i++)
 	{
 		for (j = 0; j < ny; j++)
@@ -321,9 +281,6 @@ double** dosharpen(char* infile, int nx, int ny)
 			sharp[i][j] = fuzzyPadded[i + d][j + d] - scale / norm * convolution[i][j];
 		}
 	}
-
-	// printf("Writing output file: %s\n", outfile);
-	// printf("\n");
 
 	for (i = d; i < nx - d; i++)
 	{
@@ -335,212 +292,202 @@ double** dosharpen(char* infile, int nx, int ny)
 
 	pgmwrite(outfile, &sharpCropped[0][0], nx - 2 * d, ny - 2 * d);
 
-	// printf("... done\n");
-	// printf("\n");
-	// printf("Calculation time was %f seconds\n", time);
-	// fflush(stdout);
-
 	free(fuzzy);
 	free(fuzzyPadded);
 	free(convolutionPartial);
 	free(convolution);
-	// free(sharp);
-	free(sharpCropped);
+	free(sharp);
 
-	return sharp;
+	return sharpCropped;
 }
 
-double** makeFilterMatrix(int d)
+double **makeFilterMatrix(int d)
 {
-    double** matrix = (double**)malloc((2 * d + 1) * sizeof(double*));
+	double **matrix = (double **)malloc((2 * d + 1) * sizeof(double *));
 
-    for (int i = 0; i <= 2 * d; i++)
-    {
-        matrix[i] = (double*)malloc((2 * d + 1) * sizeof(double));
+	for (int i = 0; i <= 2 * d; i++)
+	{
+		matrix[i] = (double *)malloc((2 * d + 1) * sizeof(double));
 
-        for (int j = -d; j <= d; j++)
-            matrix[i][j + d] = filter(d, i - d, j);
-    }
+		for (int j = -d; j <= d; j++)
+			matrix[i][j + d] = filter(d, i - d, j);
+	}
 
-    return matrix;
+	return matrix;
 }
-
-#define TILE_SIZE 16
 
 __global__
-void sharpenKernel(double* filterMatrix, double* fuzzyPadded, double* convolution, int nx, int ny)
+void sharpenKernel(int nx, int ny, double *filterMatrix, double *fuzzyPadded, double *convolution, double *sharp)
 {
-    // __shared__ double sharedFuzzyPadded[32][32];
-    /*int misses = 0;
-    for (int k = -d; k <= d; k++)
-        for (int l = -d; l <= d; l++) {
-            double t1 = dev_FilterMatrix[(k + d) * 17 + l + d];
-            double t2 = filter(8, k, l);
+	int i = blockIdx.y * TILE_WIDTH + threadIdx.y;
+	int j = blockIdx.x * TILE_WIDTH + threadIdx.x;
 
-            if (t1 != t2)
-                misses++;
+	int filterWidth = 2 * d + 1;
+	int fuzzyWidth = ny + 2 * d;
 
-        }*/
+	if (i < nx && j < ny)
+	{
+		for (int k = -d; k <= d; k++)
+		{
+			for (int l = -d; l <= d; l++)
+			{
+				convolution[i * ny + j] = convolution[i * ny + j] + filterMatrix[(k + d) * filterWidth + l + d] * fuzzyPadded[(i + d + k) * fuzzyWidth + j + d + l];
+			}
+		}
 
-    const int d = 8;
-    const double norm = (2 * d - 1) * (2 * d - 1);
-    int i = blockIdx.y * TILE_SIZE + threadIdx.y;
-    int j = blockIdx.x * TILE_SIZE + threadIdx.x;
-
-    /*if (threadIdx.x == 0 && threadIdx.y == 0)
-    {
-        for (int k = -d; k <= d; k++)
-            for (int l = -d; l <= d; l++)
-                sharedFuzzyPadded[i + d + k][j + d + l] = fuzzyPadded[i + d + k][j + d + l];
-    }
-    __syncthreads();*/
-
-    if (i < nx && j < ny) {
-        //sharp[i][j] = 0.0;
-
-        for (int k = -d; k <= d; k++)
-        {
-            for (int l = -d; l <= d; l++)
-            {
-                convolution[i * ny + j] = convolution[i * ny + j] + filterMatrix[(k + d) * (17) + l + d] * fuzzyPadded[(i + d + k) * (ny + 2 * d) + j + d + l];
-            }
-        }
-
-        convolution[i * ny + j] *= (2.0 / norm);
-    }
+		sharp[i * ny + j] = fuzzyPadded[(i + d) * fuzzyWidth + j + d] - constant * convolution[i * ny + j];
+	}
 }
 
-double** sharpen_cuda_init(char* infile, int nx, int ny, float* ms)
+double **dosharpenParallel(char *infile, int nx, int ny, float *timeParallel)
 {
-    const int d = 8;
-    //////////////////////////////////////
-    // LUT
+	cudaEvent_t start, stop;
 
-    double* dev_FilterMatrix;
+	cudaEventCreate(&start);
+	cudaEventCreate(&stop);
 
+	cudaEventRecord(start);
 
+	int xpix, ypix;
 
-    double** filterMatrix = makeFilterMatrix(d);
-    size_t filterMatrixSize = (2 * d + 1) * (2 * d + 1) * sizeof(double);
-    cudaMalloc(&dev_FilterMatrix, filterMatrixSize);
-    cudaMemcpy(dev_FilterMatrix, &filterMatrix[0][0], filterMatrixSize, cudaMemcpyHostToDevice);
-    //cudaMemcpyToSymbol(dev_FilterMatrix, &filterMatrix[0][0], filterMatrixSize);
-    //////////////////////////////////////
+	int **fuzzy = int2Dmalloc(nx, ny);
+	double **fuzzyPadded = double2Dmalloc(nx + 2 * d, ny + 2 * d);
+	double **sharp = double2Dmalloc(nx, ny);
+	double **sharpCropped = double2Dmalloc(nx - 2 * d, ny - 2 * d);
 
-    double** sharp = double2Dmalloc(nx, ny);
-    double** sharpCropped = double2Dmalloc(nx - 2 * d, ny - 2 * d);
-    int** fuzzy = int2Dmalloc(nx, ny);
-    double** fuzzyPadded = double2Dmalloc(nx + 2 * d, ny + 2 * d);
-    pgmread(infile, &fuzzy[0][0], nx, ny, &nx, &ny);
+	char outfile[256];
+	strcpy(outfile, infile);
+	*(strchr(outfile, '.')) = '\0';
+	strcat(outfile, "_cuda_sharpened.pgm");
 
-    for (int i = 0; i < nx; i++)
-    {
-        for (int j = 0; j < ny; j++)
-        {
-            fuzzy[i][j] = 0;
-            sharp[i][j] = 0.0;
-        }
-    }
+	for (int i = 0; i < nx; i++)
+	{
+		for (int j = 0; j < ny; j++)
+		{
+			fuzzy[i][j] = 0;
+		}
+	}
 
-    for (int i = 0; i < nx + 2 * d; i++)
-    {
-        for (int j = 0; j < ny + 2 * d; j++)
-        {
-            fuzzyPadded[i][j] = 0.0;
-        }
-    }
+	pgmread(infile, &fuzzy[0][0], nx, ny, &xpix, &ypix);
 
-    for (int i = 0; i < nx; i++)
-        for (int j = 0; j < ny; j++)
-            fuzzyPadded[i + d][j + d] = fuzzy[i][j];
+	if (xpix == 0 || ypix == 0 || nx != xpix || ny != ypix)
+	{
+		printf("Error reading %s\n", infile);
+		fflush(stdout);
+		exit(-1);
+	}
 
-    double* devFuzzyPadded;
-    size_t devFuzzyPadded_size = (nx + 2 * d) * (ny + 2 * d) * sizeof(double);
+	for (int i = 0; i < nx + 2 * d; i++)
+	{
+		for (int j = 0; j < ny + 2 * d; j++)
+		{
+			fuzzyPadded[i][j] = 0.0;
+		}
+	}
 
-    cudaMalloc(&devFuzzyPadded, devFuzzyPadded_size);
-    cudaMemcpy(devFuzzyPadded, &fuzzyPadded[0][0], devFuzzyPadded_size, cudaMemcpyHostToDevice);
+	for (int i = 0; i < nx; i++)
+	{
+		for (int j = 0; j < ny; j++)
+		{
+			fuzzyPadded[i + d][j + d] = fuzzy[i][j];
+		}
+	}
 
-    //////////////////////////////////////
+	double **filterMatrix = makeFilterMatrix(d);
 
-    //double** devSharpCropped;
-    //size_t sharpCroppedSize = (nx - 2 * d) * (ny - 2 * d) * sizeof(double);
-    //cudaMalloc(&devSharpCropped, sharpCroppedSize);
-    //////////////////////////////////////
+	double *devFilterMatrix;
+	size_t filterMatrixSize = (2 * d + 1) * (2 * d + 1) * sizeof(double);
 
-    double** convolution = double2Dmalloc(nx, ny);
+	double *devFuzzyPadded;
+	size_t fuzzyPaddedSize = (nx + 2 * d) + (ny + 2 * d) * sizeof(double);
 
-    size_t convolutionSize = (nx) * (ny) * sizeof(double);
-    size_t sharpSize = (nx) * (ny) * sizeof(double);
-    double* devConvolution;
-    cudaMalloc(&devConvolution, convolutionSize);
+	cudaMalloc((void **) &devFilterMatrix, filterMatrixSize);
+	cudaMemcpy(devFilterMatrix, &filterMatrix[0][0], filterMatrixSize, cudaMemcpyHostToDevice);
+	
+	cudaMalloc((void **) &devFuzzyPadded, fuzzyPaddedSize);
+	cudaMemcpy(devFuzzyPadded, &fuzzyPadded[0][0], fuzzyPaddedSize, cudaMemcpyHostToDevice);
 
-    int gridX_size = ceil(nx / TILE_SIZE);
-    int gridY_size = ceil(ny / TILE_SIZE);
+	double *devSharp;
+	size_t sharpSize = nx * ny * sizeof(double);
 
-    dim3 dimGrid(gridX_size, gridY_size);
-    dim3 dimBlock(TILE_SIZE, TILE_SIZE);
+	double *devConvolution;
+	size_t convolutionSize = nx * ny * sizeof(double);
 
-    cudaEvent_t start, stop;
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
+	cudaMalloc((void **) &devSharp, sharpSize);
+	cudaMalloc((void **) &devConvolution, convolutionSize);
 
-    cudaEventRecord(start);
-    sharpenKernel << <dimGrid, dimBlock >> > (dev_FilterMatrix, devFuzzyPadded, devConvolution, nx, ny);
-    cudaEventRecord(stop);
+	double tx = ceil(((double) nx) / TILE_WIDTH);
+	double ty = ceil(((double) ny) / TILE_WIDTH);
 
-    cudaEventSynchronize(stop);
-    cudaEventElapsedTime(ms, start, stop);
+	dim3 gridSize((int) tx, (int) ty);
+	dim3 blockSize(TILE_WIDTH, TILE_WIDTH);
 
+	sharpenKernel<<< gridSize, blockSize >>>(nx, ny, devFilterMatrix, devFuzzyPadded, devConvolution, devSharp);
 
-    cudaMemcpy(&convolution[0][0], devConvolution, convolutionSize, cudaMemcpyDeviceToHost);
+	cudaMemcpy(&sharp[0][0], devSharp, sharpSize, cudaMemcpyDeviceToHost);
 
+	cudaEventRecord(stop);
+	cudaEventSynchronize(stop);
 
-    for (int i = 0; i < nx; i++)
-        for (int j = 0; j < ny; j++)
-            sharp[i][j] = fuzzyPadded[i + d][j + d] - convolution[i][j];
+	cudaEventElapsedTime(timeParallel, start, stop);
 
-    for (int i = d; i < nx - d; i++)
-        for (int j = d; j < ny - d; j++)
-            sharpCropped[i - d][j - d] = sharp[i][j];
+	*timeParallel /= 1000;
 
-    cudaFree(dev_FilterMatrix);
-    cudaFree(devFuzzyPadded);
-    //cudaFree(devSharpCropped);
-    cudaFree(devConvolution);
-    //cudaFree(devSharp);
+	cudaEventDestroy(start);
+	cudaEventDestroy(stop);
 
-    free(fuzzy);
-    free(fuzzyPadded);
-    free(convolution);
-    free(sharp);
+	for (int i = d; i < nx - d; i++)
+	{
+		for (int j = d; j < ny - d; j++)
+		{
+			sharpCropped[i - d][j - d] = sharp[i][j];
+		}
+	}
 
-    return sharpCropped;
+	pgmwrite(outfile, &sharpCropped[0][0], nx - 2 * d, ny - 2 * d);
+
+	cudaFree(devFilterMatrix);
+	cudaFree(devFuzzyPadded);
+	cudaFree(devSharp);
+	cudaFree(devConvolution);
+
+	free(fuzzy);
+	free(fuzzyPadded);
+	free(sharp);
+	free(filterMatrix);
+
+	return sharpCropped;
 }
 
-void compareSharp(int w, int h, double** sequential, double** parallel)
+void compareSharp(int w, int h, double **sequential, double **parallel)
 {
-    int misses = 0;
+	int misses = 0;
 
-    for (int i = 0; i < w; i++)
-    {
-        for (int j = 0; j < h; j++)
-        {
-            if (fabs(sequential[i][j] - parallel[i][j]) > ACCURACY)
-                misses++;
-        }
-    }
+	for (int i = 0; i < w; i++)
+	{
+		for (int j = 0; j < h; j++)
+		{
+			if (fabs(sequential[i][j] - parallel[i][j]) > ACCURACY)
+			{
+				misses++;
+			}
+		}
+	}
 
-    if (misses > ACCURACY * (w * h))
-        printf("Test FAILED\n");
-    else
-        printf("Test PASSED\n");
+	double percentage = misses * 100. / (w * h);
+
+	if (misses)
+		printf("Test FAILED - %.2f%% missed\n", percentage);
+	else
+		printf("Test PASSED\n");
 }
 
-int main(int argc, char* argv[])
+int main(int argc, char *argv[])
 {
-	double tstart, tstop, time, timeParallel;
+	double timeSequential;
+	float timeParallel;
 
-	char* filename;
+	char *filename;
 	int xpix, ypix;
 
 	if (argc < 2)
@@ -548,41 +495,27 @@ int main(int argc, char* argv[])
 
 	filename = argv[1];
 
-	// printf("\n");
-	// printf("Image sharpening code running in serial\n");
-	// printf("\n");
-	// printf("Input file is: %s\n", filename);
-
 	pgmsize(filename, &xpix, &ypix);
 
-	// printf("Image size is %d x %d\n", xpix, ypix);
-	// printf("\n");
+	timeSequential = wtime();
 
-	tstart = wtime();
+	double **sharpSequential = dosharpen(filename, xpix, ypix);
 
-	double** sharpSequential = dosharpen(filename, xpix, ypix);
+	timeSequential = wtime() - timeSequential;
 
-	tstop = wtime();
-	time = tstop - tstart;
-
-  tstart = wtime();
-  
-  float ms;
-	double** sharpParallel = sharpen_cuda_init(filename, xpix, ypix, &ms);
-
-	tstop = wtime();
-	timeParallel = tstop - tstart;
+	double **sharpParallel = dosharpenParallel(filename, xpix, ypix, &timeParallel);
 
 	printf("Input file: %s\n", filename);
-	printf("Sequential execution time: %f\n", time);
+	printf("Sequential execution time: %f\n", timeSequential);
 	printf("Parallel execution time: %f\n", timeParallel);
+	printf("Speedup: %f\n", timeSequential / timeParallel);
 
-	compareSharp(xpix, ypix, sharpSequential, sharpParallel);
+	compareSharp(xpix - 2 * d, ypix - 2 * d, sharpSequential, sharpParallel);
 
 	printf("\n");
 
 	free(sharpSequential);
-	//free(sharpParallel);
+	free(sharpParallel);
 
 	return 0;
 }

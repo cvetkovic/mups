@@ -319,8 +319,8 @@ double **makeFilterMatrix(int d)
 __global__
 void sharpenKernel(int nx, int ny, double *filterMatrix, double *fuzzyPadded, double *convolution, double *sharp)
 {
-	int i = blockIdx.y * TILE_WIDTH + threadIdx.y;
-	int j = blockIdx.x * TILE_WIDTH + threadIdx.x;
+	int i = blockIdx.x * TILE_WIDTH + threadIdx.x;
+	int j = blockIdx.y * TILE_WIDTH + threadIdx.y;
 
 	int filterWidth = 2 * d + 1;
 	int fuzzyWidth = ny + 2 * d;

@@ -454,6 +454,8 @@ double **dosharpenParallel(char *infile, int nx, int ny, float *timeParallel)
 	free(fuzzy);
 	free(fuzzyPadded);
 	free(sharp);
+	for (int i = 0; i <= 2 * d; i++)
+		free(filterMatrix[i]);
 	free(filterMatrix);
 
 	return sharpCropped;

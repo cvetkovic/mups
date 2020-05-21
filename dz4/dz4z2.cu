@@ -316,56 +316,34 @@ double **makeFilterMatrix(int d)
 	return matrix;
 }
 
-__constant__ double constantFilterMatrix[17 * 17];
+void freeFilterMatrix(int d, double **matrix)
+{
+	for (int i = 0; i <= 2 * d; i++) free(matrix[i]);
+	free(matrix);
+}
 
 __global__
-void sharpenKernel(int nx, int ny, double *fuzzyPadded, double *sharp)
+void sharpenKernel(int nx, int ny, double *filterMatrix, double *fuzzyPadded, double *convolution, double *sharp)
 {
-	//__shared__ double sharedFuzzyPadded[TILE_WIDTH][TILE_WIDTH][17 * 17];
-
 	int i = blockIdx.x * TILE_WIDTH + threadIdx.x;
 	int j = blockIdx.y * TILE_WIDTH + threadIdx.y;
 
 	int filterWidth = 2 * d + 1;
 	int fuzzyWidth = ny + 2 * d;
 
-	/*if (threadIdx.x == 0 && threadIdx.y == 0)
-	{
-		for (int m = 0; m < TILE_WIDTH; m++)
-		{
-			int i_shared = blockIdx.x * TILE_WIDTH + m;
-			for (int n = 0; n < TILE_WIDTH; n++)
-			{
-				int j_shared = blockIdx.y * TILE_WIDTH + n;
-
-				for (int k = -d; k <= d; k++)
-				{
-					for (int l = -d; l <= d; l++)
-					{
-						sharedFuzzyPadded[m][n][(k + d) * (2 * d + 1) + l + d] = fuzzyPadded[(i_shared + d + k) * fuzzyWidth + j_shared + d + l];
-					}
-				}
-			}
-		}
-	}
-	__syncthreads();*/
-
 	if (i < nx && j < ny)
 	{
-		int i_sh = i / ny;
-		int j_sh = i % ny;
-
 		double convolution;
-
+		
 		for (int k = -d; k <= d; k++)
 		{
 			for (int l = -d; l <= d; l++)
 			{
-				convolution += (constantFilterMatrix[(k + d) * filterWidth + l + d] * fuzzyPadded[(i + d + k) * fuzzyWidth + j + d + l]);
+				convolution[i * ny + j] = convolution[i * ny + j] + filterMatrix[(k + d) * filterWidth + l + d] * fuzzyPadded[(i + d + k) * fuzzyWidth + j + d + l];
 			}
 		}
 
-		sharp[i * ny + j] = fuzzyPadded[(i + d) * fuzzyWidth + j + d] - constant * convolution;
+		sharp[i * ny + j] = fuzzyPadded[(i + d) * fuzzyWidth + j + d] - constant * convolution[i * ny + j];
 	}
 }
 
@@ -424,18 +402,27 @@ double **dosharpenParallel(char *infile, int nx, int ny, float *timeParallel)
 	}
 
 	double **filterMatrix = makeFilterMatrix(d);
-	cudaMemcpyToSymbol(constantFilterMatrix, &filterMatrix[0][0], sizeof(double) * 289);
+
+	double *devFilterMatrix;
+	size_t filterMatrixSize = (2 * d + 1) * (2 * d + 1) * sizeof(double);
 
 	double *devFuzzyPadded;
 	size_t fuzzyPaddedSize = (nx + 2 * d) + (ny + 2 * d) * sizeof(double);
 
+	cudaMalloc((void **) &devFilterMatrix, filterMatrixSize);
+	cudaMemcpy(devFilterMatrix, &filterMatrix[0][0], filterMatrixSize, cudaMemcpyHostToDevice);
+	
 	cudaMalloc((void **) &devFuzzyPadded, fuzzyPaddedSize);
 	cudaMemcpy(devFuzzyPadded, &fuzzyPadded[0][0], fuzzyPaddedSize, cudaMemcpyHostToDevice);
 
 	double *devSharp;
 	size_t sharpSize = nx * ny * sizeof(double);
 
+	double *devConvolution;
+	size_t convolutionSize = nx * ny * sizeof(double);
+
 	cudaMalloc((void **) &devSharp, sharpSize);
+	cudaMalloc((void **) &devConvolution, convolutionSize);
 
 	double tx = ceil(((double) nx) / TILE_WIDTH);
 	double ty = ceil(((double) ny) / TILE_WIDTH);
@@ -443,7 +430,7 @@ double **dosharpenParallel(char *infile, int nx, int ny, float *timeParallel)
 	dim3 gridSize((int) tx, (int) ty);
 	dim3 blockSize(TILE_WIDTH, TILE_WIDTH);
 
-	sharpenKernel<<< gridSize, blockSize >>>(nx, ny, devFuzzyPadded, devSharp);
+	sharpenKernel<<< gridSize, blockSize >>>(nx, ny, devFilterMatrix, devFuzzyPadded, devConvolution, devSharp);
 
 	cudaMemcpy(&sharp[0][0], devSharp, sharpSize, cudaMemcpyDeviceToHost);
 
@@ -467,15 +454,15 @@ double **dosharpenParallel(char *infile, int nx, int ny, float *timeParallel)
 
 	pgmwrite(outfile, &sharpCropped[0][0], nx - 2 * d, ny - 2 * d);
 
+	cudaFree(devFilterMatrix);
 	cudaFree(devFuzzyPadded);
 	cudaFree(devSharp);
+	cudaFree(devConvolution);
 
 	free(fuzzy);
 	free(fuzzyPadded);
 	free(sharp);
-	for (int i = 0; i <= 2 * d; i++)
-		free(filterMatrix[i]);
-	free(filterMatrix);
+	freeFilterMatrix(d, filterMatrix);
 
 	return sharpCropped;
 }

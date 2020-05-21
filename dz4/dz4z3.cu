@@ -1,64 +1,27 @@
-#include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
+#include "dz4z3.cuh"
 
-#include "cuda_runtime.h"
-#include "device_launch_parameters.h"
-
-#define max(x, y)((x < y) ? y : x)
-#define min(x, y)((x > y) ? y : x)
-
-#define PI 3.14159265359
-
-#define ACCURACY 0.25
-
-typedef struct
+__host__ __device__
+float kernel_value_CPU(float v)
 {
-	int numSamples;
-	int aquisitionMatrixSize[3];
-	int reconstructionMatrixSize[3];
-	float kMax[3];
-	int gridSize[3];
-	float oversample;
-	float kernelWidth;
-	int binsize;
-	int useLUT;
-} parameters;
-
-typedef struct
-{
-	float real;
-	float imag;
-	float kX;
-	float kY;
-	float kZ;
-	float sdc;
-} ReconstructionSample;
-
-typedef struct
-{
-	float real;
-	float imag;
-} cmplx;
-
-__device__ __host__
-float kernel_value_CPU(float v) {
-
 	float rValue = 0;
 
 	const float z = v * v;
 
 	float num = (z * (z * (z * (z * (z * (z * (z * (z * (z * (z * (z * (z * (z *
-		(z * 0.210580722890567e-22f + 0.380715242345326e-19f) +
-		0.479440257548300e-16f) + 0.435125971262668e-13f) +
-		0.300931127112960e-10f) + 0.160224679395361e-7f) +
-		0.654858370096785e-5f) + 0.202591084143397e-2f) +
-		0.463076284721000e0f) + 0.754337328948189e2f) +
-		0.830792541809429e4f) + 0.571661130563785e6f) +
-		0.216415572361227e8f) + 0.356644482244025e9f) +
-		0.144048298227235e10f);
+																				 (z * 0.210580722890567e-22f + 0.380715242345326e-19f) +
+																			 0.479440257548300e-16f) +
+																		0.435125971262668e-13f) +
+																   0.300931127112960e-10f) +
+															  0.160224679395361e-7f) +
+														 0.654858370096785e-5f) +
+													0.202591084143397e-2f) +
+											   0.463076284721000e0f) +
+										  0.754337328948189e2f) +
+									 0.830792541809429e4f) +
+								0.571661130563785e6f) +
+						   0.216415572361227e8f) +
+					  0.356644482244025e9f) +
+				 0.144048298227235e10f);
 
 	float den = (z * (z * (z - 0.307646912682801e4f) + 0.347626332405882e7f) - 0.144048298227235e10f);
 
@@ -67,7 +30,7 @@ float kernel_value_CPU(float v) {
 	return rValue;
 }
 
-void calculateLUT(float beta, float width, float** LUT, unsigned int* sizeLUT)
+void calculateLUT(float beta, float width, float **LUT, unsigned int *sizeLUT)
 {
 	float v;
 	float cutoff2 = (width * width) / 4.0;
@@ -78,22 +41,22 @@ void calculateLUT(float beta, float width, float** LUT, unsigned int* sizeLUT)
 	{
 		size = (unsigned int)(10000 * width);
 
-		(*LUT) = (float*)malloc(size * sizeof(float));
+		(*LUT) = (float *)malloc(size * sizeof(float));
 
 		unsigned int k;
+		
 		for (k = 0; k < size; ++k)
 		{
 			v = (((float)k) / ((float)size)) * cutoff2;
 
 			(*LUT)[k] = kernel_value_CPU(beta * sqrt(1.0 - (v / cutoff2)));
 		}
-
 		(*sizeLUT) = size;
 	}
 }
 
-__device__ __host__
-float kernel_value_LUT(float v, float* LUT, int sizeLUT, float _1overCutoff2)
+__host__ __device__
+float kernel_value_LUT(float v, float *LUT, int sizeLUT, float _1overCutoff2)
 {
 	unsigned int k0;
 	float v0;
@@ -104,8 +67,8 @@ float kernel_value_LUT(float v, float* LUT, int sizeLUT, float _1overCutoff2)
 	return LUT[k0] + ((v - v0) * (LUT[k0 + 1] - LUT[k0]) / _1overCutoff2);
 }
 
-int gridding_Gold(unsigned int n, parameters params, ReconstructionSample* sample, float* LUT, unsigned int sizeLUT, cmplx* gridData, float* sampleDensity) {
-
+void gridding_Gold(unsigned int n, parameters params, ReconstructionSample *sample, float *LUT, unsigned int sizeLUT, cmplx *gridData, float *sampleDensity)
+{
 	unsigned int NxL, NxH;
 	unsigned int NyL, NyH;
 	unsigned int NzL, NzH;
@@ -124,9 +87,9 @@ int gridding_Gold(unsigned int n, parameters params, ReconstructionSample* sampl
 	float Dx2[100];
 	float Dy2[100];
 	float Dz2[100];
-	float* dx2 = NULL;
-	float* dy2 = NULL;
-	float* dz2 = NULL;
+	float *dx2 = NULL;
+	float *dy2 = NULL;
+	float *dz2 = NULL;
 
 	float dy2dz2;
 	float v;
@@ -142,7 +105,8 @@ int gridding_Gold(unsigned int n, parameters params, ReconstructionSample* sampl
 	float beta = PI * sqrt(4 * params.kernelWidth * params.kernelWidth / (params.oversample * params.oversample) * (params.oversample - .5) * (params.oversample - .5) - .8);
 
 	int i;
-	for (i = 0; i < n; i++) {
+	for (i = 0; i < n; i++)
+	{
 		ReconstructionSample pt = sample[i];
 
 		float kx = pt.kX;
@@ -200,10 +164,12 @@ int gridding_Gold(unsigned int n, parameters params, ReconstructionSample* sampl
 								{
 									idx = nx + idx0;
 
-									if (params.useLUT) {
+									if (params.useLUT)
+									{
 										w = kernel_value_LUT(v, LUT, sizeLUT, _1overCutoff2) * pt.sdc;
 									}
-									else {
+									else
+									{
 										w = kernel_value_CPU(beta * sqrt(1.0 - (v * _1overCutoff2))) * pt.sdc;
 									}
 
@@ -221,11 +187,198 @@ int gridding_Gold(unsigned int n, parameters params, ReconstructionSample* sampl
 	}
 }
 
-/************************************************************
- *This function reads the parameters from the file provided
- *as a comman line argument.
+__global__
+void griddingKernel(unsigned int n, parameters *params, ReconstructionSample *sample, float *LUT, unsigned int sizeLUT, cmplx *gridData, float *sampleDensity)
+{
+	int i = blockDim.x * blockIdx.x + threadIdx.x;
+
+	if (i < n)
+	{
+		unsigned int NxL, NxH;
+		unsigned int NyL, NyH;
+		unsigned int NzL, NzH;
+
+		int nx;
+		int ny;
+		int nz;
+
+		float w;
+		unsigned int idx;
+		unsigned int idx0;
+
+		unsigned int idxZ;
+		unsigned int idxY;
+
+		float Dx2[100];
+		float Dy2[100];
+		float Dz2[100];
+		float *dx2 = NULL;
+		float *dy2 = NULL;
+		float *dz2 = NULL;
+
+		float dy2dz2;
+		float v;
+
+		unsigned int size_x = params->gridSize[0];
+		unsigned int size_y = params->gridSize[1];
+		unsigned int size_z = params->gridSize[2];
+
+		float cutoff = ((float) (params->kernelWidth)) / 2.0;
+		float cutoff2 = cutoff * cutoff;
+		float _1overCutoff2 = 1 / cutoff2;
+
+		float beta = PI * sqrt(4 * params->kernelWidth * params->kernelWidth / (params->oversample * params->oversample) * (params->oversample - .5) * (params->oversample - .5) - .8);
+		
+		ReconstructionSample pt = sample[i];
+
+		float kx = pt.kX;
+		float ky = pt.kY;
+		float kz = pt.kZ;
+
+		NxL = max((kx - cutoff), 0.0);
+		NxH = min((kx + cutoff), size_x - 1.0);
+
+		NyL = max((ky - cutoff), 0.0);
+		NyH = min((ky + cutoff), size_y - 1.0);
+
+		NzL = max((kz - cutoff), 0.0);
+		NzH = min((kz + cutoff), size_z - 1.0);
+
+		if ((pt.real != 0.0 || pt.imag != 0.0) && pt.sdc != 0.0)
+		{
+			for (dz2 = Dz2, nz = NzL; nz <= NzH; ++nz, ++dz2)
+			{
+				*dz2 = ((kz - nz) * (kz - nz));
+			}
+			for (dx2 = Dx2, nx = NxL; nx <= NxH; ++nx, ++dx2)
+			{
+				*dx2 = ((kx - nx) * (kx - nx));
+			}
+			for (dy2 = Dy2, ny = NyL; ny <= NyH; ++ny, ++dy2)
+			{
+				*dy2 = ((ky - ny) * (ky - ny));
+			}
+
+			idxZ = (NzL - 1) * size_x * size_y;
+			for (dz2 = Dz2, nz = NzL; nz <= NzH; ++nz, ++dz2)
+			{
+				idxZ += size_x * size_y;
+
+				idxY = (NyL - 1) * size_x;
+
+				if ((*dz2) < cutoff2)
+				{
+					for (dy2 = Dy2, ny = NyL; ny <= NyH; ++ny, ++dy2)
+					{
+						idxY += size_x;
+
+						dy2dz2 = (*dz2) + (*dy2);
+
+						idx0 = idxY + idxZ;
+
+						if (dy2dz2 < cutoff2)
+						{
+							for (dx2 = Dx2, nx = NxL; nx <= NxH; ++nx, ++dx2)
+							{
+								v = dy2dz2 + (*dx2);
+
+								if (v < cutoff2)
+								{
+									idx = nx + idx0;
+
+									if (params->useLUT)
+									{
+										w = kernel_value_LUT(v, LUT, sizeLUT, _1overCutoff2) * pt.sdc;
+									}
+									else
+									{
+										w = kernel_value_CPU(beta * sqrt(1.0 - (v * _1overCutoff2))) * pt.sdc;
+									}
+
+									atomicAdd(&gridData[idx].real, w * pt.real);
+									atomicAdd(&gridData[idx].imag, w * pt.imag);
+
+									atomicAdd(&sampleDensity[idx], 1.0);
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+void gridding_Parallel(unsigned int n, parameters *params, ReconstructionSample *sample, float *LUT, unsigned int sizeLUT, cmplx *gridData, float *sampleDensity, float *timeParallel)
+{
+	parameters *devParams;
+	size_t paramsSize = sizeof(parameters);
+
+	cudaMalloc((void**) &devParams, paramsSize);
+	cudaMemcpy(devParams, params, paramsSize, cudaMemcpyHostToDevice);
+
+	ReconstructionSample *devSample;
+	size_t sampleSize = params->numSamples * sizeof(ReconstructionSample);
+
+	cudaMalloc((void**) &devSample, sampleSize);
+	cudaMemcpy(devSample, sample, sampleSize, cudaMemcpyHostToDevice);
+
+	float *devLUT;
+	size_t LUTSize = sizeLUT * sizeof(float);
+
+	cudaMalloc((void**) &devLUT, LUTSize);
+	cudaMemcpy(devLUT, LUT, LUTSize, cudaMemcpyHostToDevice);
+
+	int gridNumElems = params->gridSize[0] * params->gridSize[1] * params->gridSize[2];
+
+	cmplx *devGridData;
+	size_t gridDataSize = gridNumElems * sizeof(cmplx);
+
+	float *devSampleDensity;
+	size_t sampleDensitySize = gridNumElems * sizeof(float);
+
+	cudaMalloc((void**) &devGridData, gridDataSize);
+	cudaMemset(devGridData, 0, gridDataSize);
+	cudaMalloc((void**) &devSampleDensity, sampleDensitySize);
+
+	int gridSize = ceil(((double) n) / NUM_OF_GPU_THREADS);
+	int blockSize = NUM_OF_GPU_THREADS;
+
+	cudaEvent_t start, stop;
+
+	cudaEventCreate(&start);
+	cudaEventCreate(&stop);
+
+	cudaEventRecord(start);
+
+	griddingKernel<<< gridSize, blockSize >>>(n, devParams, devSample, devLUT, sizeLUT, devGridData, devSampleDensity);
+
+	cudaEventRecord(stop);
+	cudaEventSynchronize(stop);
+
+	cudaEventElapsedTime(timeParallel, start, stop);
+
+	*timeParallel /= 1000;
+
+	cudaEventDestroy(start);
+	cudaEventDestroy(stop);
+
+	cudaMemcpy(gridData, devGridData, gridDataSize, cudaMemcpyDeviceToHost);
+	cudaMemcpy(sampleDensity, devSampleDensity, sampleDensitySize, cudaMemcpyDeviceToHost);
+
+	cudaFree(devParams);
+	cudaFree(devSample);
+	cudaFree(devLUT);
+	cudaFree(devGridData);
+	cudaFree(devSampleDensity);
+	cudaFree(devParams);
+}
+
+/************************************************************ 
+ * This function reads the parameters from the file provided
+ * as a comman line argument.
  ************************************************************/
-void setParameters(FILE* file, parameters* p)
+void setParameters(FILE *file, parameters *p)
 {
 	fscanf(file, "aquisition.numsamples=%d\n", &(p->numSamples));
 	fscanf(file, "aquisition.kmax=%f %f %f\n", &(p->kMax[0]), &(p->kMax[1]), &(p->kMax[2]));
@@ -236,24 +389,24 @@ void setParameters(FILE* file, parameters* p)
 	fscanf(file, "kernel.width=%f\n", &(p->kernelWidth));
 	fscanf(file, "kernel.useLUT=%d\n", &(p->useLUT));
 
-	printf("  Number of samples = %d\n", p->numSamples);
-	printf("  Grid Size = %dx%dx%d\n", p->gridSize[0], p->gridSize[1], p->gridSize[2]);
-	printf("  Input Matrix Size = %dx%dx%d\n", p->aquisitionMatrixSize[0], p->aquisitionMatrixSize[1], p->aquisitionMatrixSize[2]);
-	printf("  Recon Matrix Size = %dx%dx%d\n", p->reconstructionMatrixSize[0], p->reconstructionMatrixSize[1], p->reconstructionMatrixSize[2]);
-	printf("  Kernel Width = %f\n", p->kernelWidth);
-	printf("  KMax = %.2f %.2f %.2f\n", p->kMax[0], p->kMax[1], p->kMax[2]);
-	printf("  Oversampling = %f\n", p->oversample);
-	printf("  GPU Binsize = %d\n", p->binsize);
-	printf("  Use LUT = %s\n", (p->useLUT) ? "Yes" : "No");
+	printf("	Number of samples = %d\n", p->numSamples);
+	printf("	Grid Size = %dx%dx%d\n", p->gridSize[0], p->gridSize[1], p->gridSize[2]);
+	printf("	Input Matrix Size = %dx%dx%d\n", p->aquisitionMatrixSize[0], p->aquisitionMatrixSize[1], p->aquisitionMatrixSize[2]);
+	printf("	Recon Matrix Size = %dx%dx%d\n", p->reconstructionMatrixSize[0], p->reconstructionMatrixSize[1], p->reconstructionMatrixSize[2]);
+	printf("	Kernel Width = %f\n", p->kernelWidth);
+	printf("	KMax = %.2f %.2f %.2f\n", p->kMax[0], p->kMax[1], p->kMax[2]);
+	printf("	Oversampling = %f\n", p->oversample);
+	printf("	GPU Binsize = %d\n", p->binsize);
+	printf("	Use LUT = %s\n", (p->useLUT) ? "Yes" : "No");
 }
 
-/************************************************************
- *This function reads the sample point data from the kspace
- *and klocation files (and sdc file if provided) into the
- *sample array.
- *Returns the number of samples read successfully.
+/************************************************************ 
+ * This function reads the sample point data from the kspace
+ * and klocation files (and sdc file if provided) into the
+ * sample array.
+ * Returns the number of samples read successfully.
  ************************************************************/
-unsigned int readSampleData(parameters params, FILE* uksdata_f, ReconstructionSample* samples)
+unsigned int readSampleData(parameters params, FILE *uksdata_f, ReconstructionSample *samples)
 {
 	unsigned int i;
 
@@ -263,8 +416,7 @@ unsigned int readSampleData(parameters params, FILE* uksdata_f, ReconstructionSa
 		{
 			break;
 		}
-
-		fread((void*)&(samples[i]), sizeof(ReconstructionSample), 1, uksdata_f);
+		fread((void *)&(samples[i]), sizeof(ReconstructionSample), 1, uksdata_f);
 	}
 
 	float kScale[3];
@@ -296,239 +448,55 @@ unsigned int readSampleData(parameters params, FILE* uksdata_f, ReconstructionSa
 	return i;
 }
 
-__global__ 
-void griddingKernel(unsigned int n, 
-	float cutoff, 
-	float cutoff2, 
-	float _1overCutoff2, 
-	float beta, 
-	unsigned int size_x, 
-	unsigned int size_y, 
-	unsigned int size_z,
-	cmplx* gridData, 
-	float* sampleDensity,
-	ReconstructionSample* sample,
-	float* LUT,
-	int sizeLUT)
+void compareResults(int count, cmplx *gridData, cmplx *gridDataParallel, float *sampleDensity, float *sampleDensityParallel)
 {
-	unsigned int NxL, NxH;
-	unsigned int NyL, NyH;
-	unsigned int NzL, NzH;
+	int misses = 0;
 
-	int nx;
-	int ny;
-	int nz;
-
-	float w;
-	unsigned int idx;
-	unsigned int idx0;
-
-	unsigned int idxZ;
-	unsigned int idxY;
-
-	float Dx2[100];
-	float Dy2[100];
-	float Dz2[100];
-	float* dx2 = NULL;
-	float* dy2 = NULL;
-	float* dz2 = NULL;
-
-	float dy2dz2;
-	float v;
-
-	int i = blockDim.x * blockIdx.x + threadIdx.x;
-
-	if (i < n)
+	for (int i = 0; i < count; i++)
 	{
-		ReconstructionSample pt = sample[i];
-
-		float kx = pt.kX;
-		float ky = pt.kY;
-		float kz = pt.kZ;
-
-		NxL = max((kx - cutoff), 0.0);
-		NxH = min((kx + cutoff), size_x - 1.0);
-
-		NyL = max((ky - cutoff), 0.0);
-		NyH = min((ky + cutoff), size_y - 1.0);
-
-		NzL = max((kz - cutoff), 0.0);
-		NzH = min((kz + cutoff), size_z - 1.0);
-
-		if ((pt.real != 0.0 || pt.imag != 0.0) && pt.sdc != 0.0)
+		if (fabs(gridData[i].real - gridDataParallel[i].real) > DEVIATION ||
+			fabs(gridData[i].imag - gridDataParallel[i].imag) > DEVIATION)
 		{
-			for (dz2 = Dz2, nz = NzL; nz <= NzH; ++nz, ++dz2)
-			{
-				*dz2 = ((kz - nz) * (kz - nz));
-			}
-
-			for (dx2 = Dx2, nx = NxL; nx <= NxH; ++nx, ++dx2)
-			{
-				*dx2 = ((kx - nx) * (kx - nx));
-			}
-
-			for (dy2 = Dy2, ny = NyL; ny <= NyH; ++ny, ++dy2)
-			{
-				*dy2 = ((ky - ny) * (ky - ny));
-			}
-
-			idxZ = (NzL - 1) * size_x * size_y;
-			for (dz2 = Dz2, nz = NzL; nz <= NzH; ++nz, ++dz2)
-			{
-				idxZ += size_x * size_y;
-
-				idxY = (NyL - 1) * size_x;
-
-				if ((*dz2) < cutoff2)
-				{
-					for (dy2 = Dy2, ny = NyL; ny <= NyH; ++ny, ++dy2)
-					{
-						idxY += size_x;
-
-						dy2dz2 = (*dz2) + (*dy2);
-
-						idx0 = idxY + idxZ;
-
-						if (dy2dz2 < cutoff2)
-						{
-							for (dx2 = Dx2, nx = NxL; nx <= NxH; ++nx, ++dx2)
-							{
-								v = dy2dz2 + (*dx2);
-
-								if (v < cutoff2)
-								{
-									idx = nx + idx0;
-
-                                    //w = kernel_value_CPU(beta * sqrt(1.0 - (v * _1overCutoff2))) * pt.sdc;
-									w = kernel_value_LUT(v, LUT, sizeLUT, _1overCutoff2) * pt.sdc;
-
-									atomicAdd((float*)(&gridData[idx] + 0), w * pt.real);
-									atomicAdd((float*)(&gridData[idx] + sizeof(float)), w * pt.imag);
-
-									atomicAdd((&sampleDensity[idx]), 1.0);
-								}
-							}
-						}
-					}
-				}
-			}
+			misses++;
 		}
 	}
-}
 
-#define TILE_SIZE 1024
+	double percentage = misses * 100. / count;
 
-void cuda_initialize(int n, parameters params, ReconstructionSample* samples, float* LUT, unsigned int sizeLUT, cmplx* gridDataParallel, float* sampleDensityParallel, float* ms)
-{
-	unsigned int size_x = params.gridSize[0];
-	unsigned int size_y = params.gridSize[1];
-	unsigned int size_z = params.gridSize[2];
-	int gridNumElems = params.gridSize[0] * params.gridSize[1] * params.gridSize[2];
-	float cutoff = ((float)(params.kernelWidth)) / 2.0;
-	float cutoff2 = cutoff * cutoff;
-	float _1overCutoff2 = 1 / cutoff2;
-	float beta = PI * sqrt(4 * params.kernelWidth * params.kernelWidth / (params.oversample * params.oversample) * (params.oversample - .5) * (params.oversample - .5) - .8);
-
-	//////////////////////////////////////////////////
-	cmplx* devGridData;
-	size_t size_devGridData = gridNumElems * sizeof(cmplx);
-	cudaMalloc((void**)&devGridData, size_devGridData);
-	//////////////////////////////////////////////////
-	float* devSampleDensity;
-	size_t size_devSampleDensity = gridNumElems * sizeof(float);
-	cudaMalloc((void**)&devSampleDensity, size_devSampleDensity);
-	//////////////////////////////////////////////////
-	ReconstructionSample* devReconstructionSample;
-	size_t size_devReconstructionSample = params.numSamples * sizeof(ReconstructionSample);
-	cudaMalloc((void**)&devReconstructionSample, size_devReconstructionSample);
-	cudaMemcpy(devReconstructionSample, samples, size_devReconstructionSample, cudaMemcpyHostToDevice);
-	//////////////////////////////////////////////////
-	float* devLUT;
-	size_t size_devLUT = sizeLUT * sizeof(float);
-	cudaMalloc((void**)&devLUT, size_devLUT);
-	cudaMemcpy(devLUT, LUT, size_devLUT, cudaMemcpyHostToDevice);
-	//////////////////////////////////////////////////
-	int width = ceil(n / TILE_SIZE);
-	dim3 gridSize(width, 1);
-	dim3 blockSize(TILE_SIZE, 1);
-	//////////////////////////////////////////////////
-	cudaEvent_t start, stop;
-	cudaEventCreate(&start);
-	cudaEventCreate(&stop);
-
-	//////////////////////////////////////////////////
-	cudaEventRecord(start);
-
-	griddingKernel << <gridSize, blockSize >> > (n, cutoff, cutoff2, _1overCutoff2, beta, size_x, size_y, size_z, 
-		devGridData, devSampleDensity, devReconstructionSample, devLUT, sizeLUT);
-
-	cudaEventRecord(stop);
-	cudaEventSynchronize(stop);
-	//////////////////////////////////////////////////
-
-	cudaEventElapsedTime(ms, start, stop);
-
-	cudaMemcpy(gridDataParallel, devGridData, size_devGridData, cudaMemcpyDeviceToHost);
-	cudaMemcpy(sampleDensityParallel, devSampleDensity, size_devSampleDensity, cudaMemcpyDeviceToHost);
-
-	//////////////////////////////////////////////////
-	cudaEventDestroy(start);
-	cudaEventDestroy(stop);
-	cudaFree(devReconstructionSample);
-	cudaFree(devGridData);
-	cudaFree(devSampleDensity);
-}
-
-void compare(int n, cmplx* gridData, cmplx* gridDataParallel, float* sampleDensity, float* sampleDensityParallel)
-{
-	int missesGridData = 0;
-	int missesGridDataImag = 0;
-
-	for (int i = 0; i < n; i++)
-	{
-		if (fabs(gridData[i].real - gridDataParallel[i].real) > ACCURACY)
-			missesGridData++;
-        
-        if (fabs(gridData[i].imag - gridDataParallel[i].imag) > ACCURACY)
-            missesGridDataImag++;
-    }
-    
-    printf("Misses in grid data (real): %d\n", missesGridData);
-    printf("Misses in grid data (imag): %d\n", missesGridDataImag);
-
-	if (missesGridData > ACCURACY * n)
-		printf("TEST FAILED - gridData\n");
+	if (percentage > ACCURACY)
+		printf("TEST FAILED - gridData (%.5f%% missed)\n", percentage);
 	else
 		printf("TEST PASSED - gridData\n");
 
-	missesGridData = 0;
+	misses = 0;
 
-	for (int i = 0; i < n; i++)
+	for (int i = 0; i < count; i++)
 	{
 		if (sampleDensity[i] != sampleDensityParallel[i])
 		{
-			missesGridData++;
+			misses++;
 		}
 	}
 
-    printf("Misses in sample density: %d\n", missesGridData);
+	percentage = misses * 100. / count;
 
-	if (missesGridData > ACCURACY * n)
-		printf("TEST FAILED - sampleDensity\n");
+	if (misses)
+		printf("TEST FAILED - sampleDensity (%.5f%% missed)\n", percentage);
 	else
 		printf("TEST PASSED - sampleDensity\n");
 }
 
-int main(int argc, char* argv[])
+int main(int argc, char *argv[])
 {
 	char uksfile[256];
 	char uksdata[256];
 	parameters params;
 
-	FILE* uksfile_f = NULL;
-	FILE* uksdata_f = NULL;
+	FILE *uksfile_f = NULL;
+	FILE *uksdata_f = NULL;
 
-	if (argc != 3) return;
+	if (argc != 3)
+		return 1;
 
 	strcpy(uksfile, argv[1]);
 	strcpy(uksdata, argv[1]);
@@ -549,20 +517,22 @@ int main(int argc, char* argv[])
 	}
 	else
 	{
-		//default binsize value;
+		// default binsize value;
 		params.binsize = 128;
 	}
 
 	setParameters(uksfile_f, &params);
 
-	ReconstructionSample* samples = (ReconstructionSample*)malloc(params.numSamples * sizeof(ReconstructionSample));
-	float* LUT;
+	ReconstructionSample *samples = (ReconstructionSample *)malloc(params.numSamples * sizeof(ReconstructionSample));
+	float *LUT;
 	unsigned int sizeLUT;
 
 	int gridNumElems = params.gridSize[0] * params.gridSize[1] * params.gridSize[2];
 
-	cmplx* gridData = (cmplx*)calloc(gridNumElems, sizeof(cmplx));
-	float* sampleDensity = (float*)calloc(gridNumElems, sizeof(float));
+	cmplx *gridData = (cmplx *)calloc(gridNumElems, sizeof(cmplx));
+	float *sampleDensity = (float *)calloc(gridNumElems, sizeof(float));
+	cmplx *gridDataParallel = (cmplx *)calloc(gridNumElems, sizeof(cmplx));
+	float *sampleDensityParallel = (float *)calloc(gridNumElems, sizeof(float));
 
 	if (samples == NULL)
 	{
@@ -589,6 +559,9 @@ int main(int argc, char* argv[])
 	unsigned int n = readSampleData(params, uksdata_f, samples);
 	fclose(uksdata_f);
 
+	double timeSequential;
+	float timeParallel;
+
 	if (params.useLUT)
 	{
 		printf("Generating Look-Up Table\n");
@@ -596,33 +569,31 @@ int main(int argc, char* argv[])
 		calculateLUT(beta, params.kernelWidth, &LUT, &sizeLUT);
 	}
 
-	cmplx* gridDataParallel = (cmplx*)calloc(gridNumElems, sizeof(cmplx));
-	float* sampleDensityParallel = (float*)calloc(gridNumElems, sizeof(float));
-
-	clock_t timeSequential = clock();
+	clock_t time = clock();
 	gridding_Gold(n, params, samples, LUT, sizeLUT, gridData, sampleDensity);
-	timeSequential = clock() - timeSequential;
+	time = clock() - time;
 
-	float ms;
-    cuda_initialize(n, params, samples, LUT, sizeLUT, gridDataParallel, sampleDensityParallel, &ms);
-    
-    compare(n, gridData, gridDataParallel, sampleDensity, sampleDensityParallel);
+	timeSequential = ((double) time) / CLOCKS_PER_SEC;
+
+	gridding_Parallel(n, &params, samples, LUT, sizeLUT, gridDataParallel, sampleDensityParallel, &timeParallel);
+
+	printf("Sequential execution time: %f\n", timeSequential);
+	printf("Parallel execution time: %f\n", timeParallel);
+	printf("Speedup: %f\n", timeSequential / timeParallel);
+
+	compareResults(gridNumElems, gridData, gridDataParallel, sampleDensity, sampleDensityParallel);
 
 	if (params.useLUT)
 	{
 		free(LUT);
 	}
-
 	free(samples);
 	free(gridData);
+	free(gridDataParallel);
 	free(sampleDensity);
+	free(sampleDensityParallel);
 
 	printf("\n");
-
-	double t_seq = (double)(timeSequential) / CLOCKS_PER_SEC;	// s
-	printf("Sequential execution time: %f\n", t_seq);
-	printf("Parallel execution time: %f\n", ms / 1000.);
-
 
 	return 0;
 }

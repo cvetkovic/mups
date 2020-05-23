@@ -134,7 +134,7 @@ double wtime(void)
 	gettimeofday(&tp, NULL);
 	return tp.tv_sec + tp.tv_usec / (double)1.0e6;
 }
-__host__ __device__
+
 double filter(int d, int i, int j)
 {
 	double rd4sq, rsq, sigmad4sq, sigmasq, x, y, delta;
@@ -303,23 +303,17 @@ double **dosharpen(char *infile, int nx, int ny)
 
 double **makeFilterMatrix(int d)
 {
-	double **matrix = (double **)malloc((2 * d + 1) * sizeof(double *));
+	double **matrix = double2Dmalloc(2 * d + 1, 2 * d + 1);
 
 	for (int i = 0; i <= 2 * d; i++)
-	{
-		matrix[i] = (double *)malloc((2 * d + 1) * sizeof(double));
-
 		for (int j = -d; j <= d; j++)
 			matrix[i][j + d] = filter(d, i - d, j);
-	}
 
 	return matrix;
 }
 
-__constant__ double constantFilterMatrix[17 * 17];
-
 __global__
-void sharpenKernel(int nx, int ny, double *fuzzyPadded, double *sharp)
+void sharpenKernel(int nx, int ny, double *filterMatrix, double *fuzzyPadded, double *convolution, double *sharp)
 {
 	int i = blockIdx.x * TILE_WIDTH + threadIdx.x;
 	int j = blockIdx.y * TILE_WIDTH + threadIdx.y;
@@ -329,18 +323,15 @@ void sharpenKernel(int nx, int ny, double *fuzzyPadded, double *sharp)
 
 	if (i < nx && j < ny)
 	{
-		double convolution;
-
 		for (int k = -d; k <= d; k++)
 		{
 			for (int l = -d; l <= d; l++)
 			{
-				//convolution += (constantFilterMatrix[(k + d) * filterWidth + l + d] * fuzzyPadded[(i + d + k) * fuzzyWidth + j + d + l]);
-				convolution += (filter(d, k, l) * fuzzyPadded[(i + d + k) * fuzzyWidth + j + d + l]);
+				convolution[i * ny + j] = convolution[i * ny + j] + filterMatrix[(k + d) * filterWidth + l + d] * fuzzyPadded[(i + d + k) * fuzzyWidth + j + d + l];
 			}
 		}
 
-		sharp[i * ny + j] = fuzzyPadded[(i + d) * fuzzyWidth + j + d] - constant * convolution;
+		sharp[i * ny + j] = fuzzyPadded[(i + d) * fuzzyWidth + j + d] - constant * convolution[i * ny + j];
 	}
 }
 
@@ -399,26 +390,27 @@ double **dosharpenParallel(char *infile, int nx, int ny, float *timeParallel)
 	}
 
 	double **filterMatrix = makeFilterMatrix(d);
-	cudaMemcpyToSymbol(constantFilterMatrix, &filterMatrix[0][0], sizeof(double) * 289);
+
+	double *devFilterMatrix;
+	size_t filterMatrixSize = (2 * d + 1) * (2 * d + 1) * sizeof(double);
 
 	double *devFuzzyPadded;
 	size_t fuzzyPaddedSize = (nx + 2 * d) * (ny + 2 * d) * sizeof(double);
 
+	cudaMalloc((void **) &devFilterMatrix, filterMatrixSize);
+	cudaMemcpy(devFilterMatrix, &filterMatrix[0][0], filterMatrixSize, cudaMemcpyHostToDevice);
+	
 	cudaMalloc((void **) &devFuzzyPadded, fuzzyPaddedSize);
-	double* devTmp = devFuzzyPadded;
-	for (int i = 0; i < nx + 2 * d; i++)
-	{
-		cudaMemcpy(devTmp, &fuzzyPadded[i][0], (ny + 2 * d) * sizeof(double), cudaMemcpyHostToDevice);
-		devTmp += (ny + 2 * d) * sizeof(double);
-		printf("%p\n", devTmp);
-	}
-
-	//cudaMemcpy(devFuzzyPadded, &fuzzyPadded[0][0], fuzzyPaddedSize, cudaMemcpyHostToDevice);
+	cudaMemcpy(devFuzzyPadded, &fuzzyPadded[0][0], fuzzyPaddedSize, cudaMemcpyHostToDevice);
 
 	double *devSharp;
 	size_t sharpSize = nx * ny * sizeof(double);
 
+	double *devConvolution;
+	size_t convolutionSize = nx * ny * sizeof(double);
+
 	cudaMalloc((void **) &devSharp, sharpSize);
+	cudaMalloc((void **) &devConvolution, convolutionSize);
 
 	double tx = ceil(((double) nx) / TILE_WIDTH);
 	double ty = ceil(((double) ny) / TILE_WIDTH);
@@ -426,14 +418,9 @@ double **dosharpenParallel(char *infile, int nx, int ny, float *timeParallel)
 	dim3 gridSize((int) tx, (int) ty);
 	dim3 blockSize(TILE_WIDTH, TILE_WIDTH);
 
-	sharpenKernel<<< gridSize, blockSize >>>(nx, ny, devFuzzyPadded, devSharp);
+	sharpenKernel<<< gridSize, blockSize >>>(nx, ny, devFilterMatrix, devFuzzyPadded, devConvolution, devSharp);
 
-	devTmp = devSharp;
-	for (int i = 0; i < nx; i++)
-	{
-		cudaMemcpy(&sharp[i][0], devTmp, ny * sizeof(double), cudaMemcpyDeviceToHost);
-		devTmp += ny * sizeof(double);
-	}
+	cudaMemcpy(&sharp[0][0], devSharp, sharpSize, cudaMemcpyDeviceToHost);
 
 	cudaEventRecord(stop);
 	cudaEventSynchronize(stop);
@@ -455,14 +442,14 @@ double **dosharpenParallel(char *infile, int nx, int ny, float *timeParallel)
 
 	pgmwrite(outfile, &sharpCropped[0][0], nx - 2 * d, ny - 2 * d);
 
+	cudaFree(devFilterMatrix);
 	cudaFree(devFuzzyPadded);
 	cudaFree(devSharp);
+	cudaFree(devConvolution);
 
 	free(fuzzy);
 	free(fuzzyPadded);
 	free(sharp);
-	for (int i = 0; i <= 2 * d; i++)
-		free(filterMatrix[i]);
 	free(filterMatrix);
 
 	return sharpCropped;
@@ -476,9 +463,6 @@ void compareSharp(int w, int h, double **sequential, double **parallel)
 	{
 		for (int j = 0; j < h; j++)
 		{
-			if (i == 0 && j < 100)
-				printf("%f %f\n", sequential[i][j], parallel[i][j]);
-
 			if (fabs(sequential[i][j] - parallel[i][j]) > ACCURACY)
 			{
 				misses++;

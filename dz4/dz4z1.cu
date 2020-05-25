@@ -64,7 +64,7 @@ int main(int argc, char* argv[]) {
 		if (!h || !w || !cnt) return 1;
 	}
 
-	printf("W: %d, H: %d\n\n", w, h);
+	printf("W: %d, H: %d, CNT: %d\n\n", w, h, cnt);
 
 	strcat(filename, "_");
 	sprintf(buffer, "%d", h);
